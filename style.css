@@ -40,7 +40,16 @@ input:focus, textarea:focus { border-color: var(--coral); box-shadow: 0 0 0 3px 
 /* ---------- auth (navy + bone, coral only on the CTA) ---------- */
 .auth { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; overflow: auto; background: var(--navy); }
 #gravity { position: absolute; inset: 0; width: 100%; height: 100%; }
-.auth-card { position: relative; width: 100%; max-width: 400px; background: var(--bone); color: var(--navy); border-radius: 20px; padding: 32px; box-shadow: 0 30px 80px rgba(0, 0, 0, .5); }
+.auth-card { position: relative; width: 100%; max-width: 400px; background: var(--bone); color: var(--navy); border-radius: 28px; padding: 8px; transition: transform .45s cubic-bezier(.2, .8, .2, 1), opacity .45s;
+  box-shadow: 0 -1px 2px rgba(255, 255, 255, .5), 0 2px 4px rgba(4, 10, 24, .25), 0 14px 28px -6px rgba(11, 20, 38, .45), 0 40px 80px -16px rgba(255, 90, 78, .16), 0 0 0 1px rgba(239, 232, 218, .08); }
+.auth-card.leave { transform: scale(1.06) translateY(-8px); opacity: 0; }
+.auth-inner { background: #e8e0cf; border-radius: 20px; padding: 24px; box-shadow: inset 0 1px 2px rgba(11, 20, 38, .08); }
+.auth-card input { border-radius: 6px; }
+.auth-card .btn.primary { border-radius: 6px; box-shadow: 0 1px 0 rgba(255, 255, 255, .35) inset, 0 2px 4px rgba(11, 20, 38, .2), 0 10px 24px -6px rgba(255, 90, 78, .5); }
+.auth-card .btn.primary:active { transform: scale(.98); }
+.pw { position: relative; display: block; } .pw input { padding-right: 42px; }
+.pw-toggle { position: absolute; right: 4px; top: 50%; width: 34px; height: 34px; margin-top: -17px; display: flex; align-items: center; justify-content: center; border-radius: 6px; color: rgba(11, 20, 38, .5); transition: .15s; }
+.pw-toggle:hover { color: var(--navy); background: rgba(11, 20, 38, .06); } .pw-toggle.on { color: var(--coral); }
 .auth-card .sub, .auth-card .auth-switch, .auth-card .field > span { color: rgba(11, 20, 38, .6); }
 .auth-card input { background: #f8f4ea; color: var(--navy); border-color: rgba(11, 20, 38, .18); }
 .auth-card input::placeholder { color: rgba(11, 20, 38, .35); }
@@ -48,7 +57,7 @@ input:focus, textarea:focus { border-color: var(--coral); box-shadow: 0 0 0 3px 
 .auth-card .linkbtn { color: var(--navy); font-weight: 600; }
 .auth-card .msg-err { color: #b3261e; }
 .logo { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
-.logo-mark { width: 36px; height: 36px; border-radius: 11px; background: var(--navy); display: flex; align-items: center; justify-content: center; color: var(--bone); }
+.logo-mark { width: 38px; height: 38px; border-radius: 12px; background: linear-gradient(160deg, #1b2c4d, var(--navy) 60%); display: flex; align-items: center; justify-content: center; color: var(--bone); box-shadow: inset 0 1px 1px rgba(239, 232, 218, .35), inset 0 -3px 6px rgba(0, 0, 0, .45), 0 0 0 2px #cfc6b2, 0 4px 10px rgba(11, 20, 38, .35); }
 .logo-text { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
 .auth-card h1 { margin: 0 0 4px; font-size: 24px; letter-spacing: -.02em; }
 .sub { color: var(--mut); margin: 0 0 22px; font-size: 14px; }

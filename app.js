@@ -58,8 +58,8 @@ async function post(payload) {
 /* ---------- auth ---------- */
 function setAuthMode(login) {
     S.login = login;
-    $('title').textContent = login ? 'Welcome back' : 'Create your account';
-    $('subtitle').textContent = login ? 'Log in to pick up where you left off.' : 'Join pratr in a few seconds.';
+    $('title').textContent = login ? 'Log in to pratr' : 'Create your pratr account';
+    $('subtitle').textContent = login ? 'Pick up where you left off.' : 'Takes a few seconds.';
     $('btn').textContent = login ? 'Log in' : 'Create account';
     $('toggle-text').textContent = login ? 'New here?' : 'Already have an account?';
     $('toggle').textContent = login ? 'Create an account' : 'Log in';
@@ -95,6 +95,12 @@ $('resend').onclick = async () => {
 };
 $('otp-back').onclick = () => { $('otp-form').classList.add('hidden'); $('form').classList.remove('hidden'); $('msg').textContent = ''; };
 
+$('pw-toggle').onclick = () => {
+    const show = $('password').type === 'password';
+    $('password').type = show ? 'text' : 'password';
+    $('pw-toggle').classList.toggle('on', show); $('pw-toggle').setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+};
+
 function finishLogin(data) {
     S.token = data.token;
     localStorage.setItem('token', S.token);
@@ -102,7 +108,10 @@ function finishLogin(data) {
     $('form').classList.remove('hidden');
     $('otp-form').classList.add('hidden');
     $('password').value = ''; $('otp').value = '';
-    boot();
+    // peak-end: check-mark on the CTA, then the card lifts away into the app
+    const cta = document.querySelector('#auth-card form:not(.hidden) .btn.primary'), label = cta.textContent;
+    cta.textContent = '✓'; $('auth-card').classList.add('leave');
+    setTimeout(() => { boot(); $('auth-card').classList.remove('leave'); cta.textContent = label; setAuthMode(true); }, 450);
 }
 
 function clearSession() {
