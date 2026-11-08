@@ -201,7 +201,7 @@ textarea { resize: none; display: block; }
 .emoji-pop { position: absolute; right: 16px; bottom: 72px; width: min(320px, calc(100vw - 20px)); max-height: 280px; overflow-y: auto; background: var(--bg1); border: 1px solid #25375c; border-radius: 14px; padding: 10px; box-shadow: 0 18px 50px rgba(0, 0, 0, .6); z-index: 20; animation: pop .12s; }
 .emoji-pop h5 { margin: 6px 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
 .emoji-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
-.emoji-grid button { font-size: 22px; line-height: 1; padding: 5px 0; border-radius: 8px; transition: .1s; } .emoji-grid button:hover { background: var(--bg4); transform: scale(1.15); }
+.emoji-grid button { font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; font-size: 22px; line-height: 1; padding: 5px 0; border-radius: 8px; transition: .1s; } .emoji-grid button:hover { background: var(--bg4); transform: scale(1.15); }
 
 .ava.xl { width: 92px; height: 92px; font-size: 36px; border: 5px solid var(--bg2); }
 .disc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
@@ -228,6 +228,13 @@ textarea { resize: none; display: block; }
 .mem.off { opacity: .55; } .mem.off:hover { opacity: .9; }
 .stat { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
 .pdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bone); } .pdot.off { background: transparent; box-shadow: inset 0 0 0 1.5px var(--dim); margin-left: 6px; }
+
+.mention { background: rgba(255, 90, 78, .16); color: #ffb3ac; border-radius: 4px; padding: 0 3px; font-weight: 600; }
+.mention.me { background: rgba(255, 90, 78, .35); color: #fff; }
+.msg.mentioned { background: rgba(255, 90, 78, .07); box-shadow: inset 3px 0 0 var(--coral); }
+.mention-pop { position: absolute; left: 16px; bottom: 72px; width: min(260px, calc(100vw - 20px)); background: var(--bg1); border: 1px solid #25375c; border-radius: 12px; padding: 6px; box-shadow: 0 18px 50px rgba(0, 0, 0, .6); z-index: 21; }
+.mention-pop button { display: block; width: 100%; text-align: left; padding: 8px 10px; border-radius: 8px; color: #d8d2c4; }
+.mention-pop button.on, .mention-pop button:hover { background: var(--bone); color: var(--navy); }
 
 /* ---------- responsive ---------- */
 @media (max-width: 860px) {

@@ -14,13 +14,14 @@ const S = {
     me: null, servers: [], friends: [], view: 'home',
     server: null, channels: [], channelId: null, dm: null, members: [],
     last: {}, chLoaded: false, sig: '', sending: false, membersOn: window.innerWidth > 860,
-    login: true, t1: null, t2: null
+    login: true, t1: null, t2: null, maxId: {}
 };
 
 /* ---------- helpers ---------- */
 const color = (s) => { let x = 0; for (const c of String(s)) x = (x * 31 + c.charCodeAt(0)) % 360; return `hsl(${x} 55% 48%)`; };
+const ini = (s) => (Array.from(String(s || '?'))[0] || '?').toUpperCase();
 const bg = (url, name) => url ? `center/cover url("${url}")` : color(name || '?');
-function avatar(name, cls = '', url = '') { const a = h('div', 'ava ' + cls, url ? '' : (name || '?')[0].toUpperCase()); a.style.background = bg(url, name); return a; }
+function avatar(name, cls = '', url = '') { const a = h('div', 'ava ' + cls, url ? '' : ini(name)); a.style.background = bg(url, name); return a; }
 const isOwner = () => !!(S.me && S.server && S.server.owner === S.me.id);
 const curChannel = () => S.channels.find(c => c.id === S.channelId) || null;
 const fmtTime = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -128,7 +129,7 @@ $('logout-btn').onclick = async () => { await post({ action: 'logout' }); clearS
 /* ---------- boot ---------- */
 function setMe(u) {
     const name = u.username || 'user';
-    const letter = u.avatar ? '' : name[0].toUpperCase();
+    const letter = u.avatar ? '' : ini(name);
     $('me-name').textContent = $('hp-name').textContent = name;
     $('me-email').textContent = $('hp-email').textContent = u.email || '';
     $('hp-bio').textContent = u.bio || '';
@@ -205,9 +206,11 @@ async function loadMembers() {
     const sid = S.server.id;
     const out = await post({ action: 'members', id: sid });
     if (!out.res.ok || !S.server || S.server.id !== sid) return;
+    const prevNames = S.members.map(m => m.username).join();
     S.members = out.data.members || [];
     S.server.owner = out.data.owner;
     renderMembers();
+    if (S.members.map(m => m.username).join() !== prevNames) { S.sig = ''; loadMessages(false); }
 }
 async function loadMessages(force = false) {
     const key = chatKey();
@@ -298,7 +301,7 @@ function renderRail() {
     const box = $('rail-servers');
     box.textContent = '';
     S.servers.forEach(s => {
-        const b = h('button', 'rail-btn' + (S.server && S.server.id === s.id ? ' active' : ''), s.icon ? '' : s.name[0].toUpperCase());
+        const b = h('button', 'rail-btn' + (S.server && S.server.id === s.id ? ' active' : ''), s.icon ? '' : ini(s.name));
         if (s.icon) b.style.background = bg(s.icon);
         b.title = s.name;
         b._ctx = () => [...(s.owner === S.me?.id ? [['Server settings', () => openServer(s.id).then(openServerSettings)]] : []), ['Copy server name', () => copy(s.name)], ...idItem('server', s.id)];
@@ -462,6 +465,7 @@ function renderMessages(list, force) {
     const box = $('messages');
     const sig = list.map(m => m.id).join(',');
     if (sig === S.sig && !force) return;
+    const key = chatKey(), prevMax = S.maxId[key];
     const stick = force || box.scrollTop + box.clientHeight >= box.scrollHeight - 100;
     box.textContent = '';
 
@@ -495,7 +499,10 @@ function renderMessages(list, force) {
             head.append(name, time);
             body.append(head);
         }
-        body.append(h('div', 'text', m.text));
+        const [txt, mentionsMe] = richText(m.text);
+        body.append(txt);
+        if (mentionsMe) row.classList.add('mentioned');
+        if (prevMax != null && m.id > prevMax && !m.mine && mentionsMe) toast(`${m.author.username} mentioned you`);
         [...new Set([...m.text.matchAll(/#invite=([a-z0-9]{5,48})/gi)].map(x => x[1].toLowerCase()))].forEach(code => body.append(inviteEmbed(code)));
         row._ctx = [...userItems(m.author), ['Copy message', () => copy(m.text)], ...idItem('message', m.id), ...(m.mine || isOwner() ? ['-', ['Delete message', () => delMsg(m), true]] : [])];
         row.append(gutter, body);
@@ -503,6 +510,7 @@ function renderMessages(list, force) {
         prev = m;
     });
     S.sig = sig;
+    S.maxId[key] = list.length ? Math.max(...list.map(m => m.id)) : (prevMax ?? 0);
     if (stick) box.scrollTop = box.scrollHeight;
 }
 
@@ -688,16 +696,74 @@ window.addEventListener('hashchange', () => { if (S.token && S.me) handleInvite(
 
 /* ---------- emoji picker (unicode) ---------- */
 const EMOJI = {
-    Smileys: '😀 😃 😄 😁 😆 😅 😂 🤣 🥲 😊 😇 🙂 😉 😍 🥰 😘 😋 😜 🤪 😎 🤩 🥳 😏 😒 😞 😔 😢 😭 😤 😡 🤯 😱 😴 🤔 🫡 🤗 🫠 🙄 😬 🥺',
-    Gestures: '👍 👎 👏 🙌 🙏 💪 👀 👋 🤝 ✌️ 🤞 👌 🤌 🫶 ❤️ 🧡 💛 💚 💙 💜 🖤 🤍 💔 🔥 ✨ 🎉 💯 ✅ ❌ ⚡',
-    Fun: '🎮 🎧 🎵 ⚽ 🏀 🍕 🍔 🍟 🍿 ☕ 🍺 🎂 🚀 🌈 ⭐ 🌙 ☀️ 🐶 🐱 🦊 🐼 🐸 👻 💀 🤖 🌹 🎁 📌 💡 🏆'
+    'Smileys': '😀 😃 😄 😁 😆 😅 🤣 😂 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😗 😚 😙 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🤫 🤔 🤐 🤨 😐 😑 😶 😏 😒 🙄 😬 🤥 😌 😔 😪 🤤 😴 😷 🤒 🤕 🤢 🤮 🤧 🥵 🥶 🥴 😵 🤯 🤠 🥳 😎 🤓 🧐 😕 😟 🙁 ☹️ 😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 👿 💀 ☠️ 💩 🤡 👹 👺 👻 👽 👾 🤖 😺 😸 😹 😻 😼 😽 🙀 😿 😾',
+    'People': '👍 👎 👊 ✊ 🤛 🤜 👏 🙌 👐 🤲 🤝 🙏 ✌️ 🤞 🤟 🤘 👌 🤏 👈 👉 👆 👇 ☝️ ✋ 🤚 🖐️ 🖖 👋 🤙 💪 🖕 ✍️ 💅 🤳 👀 👁️ 👅 👄 🧠 🦴 👶 👦 👧 👨 👩 🧑 👴 👵 🙋 🙆 🙅 🤷 🤦 💁 🙇',
+    'Hearts & symbols': '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💯 💢 💥 💫 💦 💨 💬 💭 💤 ✨ ⭐ 🌟 ⚡ 🔥 🌈 ☀️ 🌙 ❄️ ☁️ ✅ ❌ ❓ ❗ ‼️ ⚠️ 🚫 ⭕ ✔️ ➕ ➖ ➡️ ⬅️ ⬆️ ⬇️ 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🔔 🔕 🆗 🆒 🆕 🆓 🔞',
+    'Animals & nature': '🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🙈 🙉 🙊 🐔 🐧 🐦 🐤 🦆 🦅 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🐛 🦋 🐌 🐞 🐜 🕷️ 🐢 🐍 🦎 🐙 🦑 🦐 🦀 🐠 🐟 🐬 🐳 🦈 🐊 🐘 🦒 🦓 🐪 🐑 🐐 🐕 🐈 🐇 🌵 🎄 🌲 🌳 🌴 🌱 🍀 🍁 🍂 🌸 🌹 🌻 🌼 🍄',
+    'Food & drink': '🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🥑 🥦 🥕 🌽 🌶️ 🥔 🍞 🧀 🥚 🍳 🥞 🥓 🥩 🍗 🍖 🌭 🍔 🍟 🍕 🌮 🌯 🥗 🍝 🍜 🍲 🍣 🍱 🍤 🍙 🍚 🍦 🍩 🍪 🎂 🍰 🧁 🍫 🍬 🍭 🍿 ☕ 🍵 🥤 🍺 🍻 🥂 🍷 🍸 🍹 🧃',
+    'Activities & objects': '🎮 🕹️ 🎲 🎯 🎳 ⚽ 🏀 🏈 ⚾ 🎾 🏐 🏓 🥊 🎧 🎤 🎵 🎶 🎸 🎹 🥁 🎬 🎨 📷 📱 💻 ⌨️ 🖥️ 🖱️ 💾 📚 📖 ✏️ 📝 📌 📎 🔗 🔒 🔑 💡 🔦 🔧 🔨 ⚙️ 🧲 💣 🎁 🎉 🎊 🎈 🏆 🥇 🥈 🥉 👑 💎 💰 🚀 ✈️ 🚗 🚕 🏍️ 🚲 ⛵ 🌍 🏠 🏰 ⏰ ⌛ 📣 🔮'
 };
-const pop = $('emoji-pop');
+// Emoji this device can't draw show up as empty boxes (they measure a different width), so hide those.
+const canDraw = (() => {
+    const c = document.createElement('canvas').getContext('2d');
+    c.font = '24px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+    const ref = c.measureText('😀').width;
+    return (e) => Math.abs(c.measureText(e).width - ref) <= ref * 0.2;
+})();
+const pop = $('emoji-pop'), allEmoji = Object.values(EMOJI).join(' ').split(' ');
+const okEmoji = new Set(allEmoji.filter(canDraw)), filterEmoji = okEmoji.size >= allEmoji.length * 0.5; // too few passing = no emoji font detected, don't filter
 Object.entries(EMOJI).forEach(([title, list]) => {
     const grid = h('div', 'emoji-grid');
-    list.split(' ').forEach(e => { const b = h('button', '', e); b.type = 'button'; b.onclick = () => { input.setRangeText(e, input.selectionStart, input.selectionEnd, 'end'); input.focus(); autosize(); }; grid.append(b); });
-    pop.append(h('h5', '', title), grid);
+    list.split(' ').filter(e => !filterEmoji || okEmoji.has(e)).forEach(e => { const b = h('button', '', e); b.type = 'button'; b.onclick = () => { input.setRangeText(e, input.selectionStart, input.selectionEnd, 'end'); input.focus(); autosize(); }; grid.append(b); });
+    if (grid.children.length) pop.append(h('h5', '', title), grid);
 });
+
+/* ---------- mentions ---------- */
+const mnames = () => S.view === 'server' ? S.members.map(m => m.username).filter(Boolean) : [S.me?.username, S.dm?.username].filter(Boolean);
+function segments(text, names) { // split text into plain strings and {m, who} mention objects (known usernames only)
+    const out = [], lower = text.toLowerCase(), sorted = [...new Set(names)].sort((x, y) => y.length - x.length);
+    let i = 0, last = 0;
+    while ((i = text.indexOf('@', i)) !== -1) {
+        const n = (i === 0 || !/\w/.test(text[i - 1])) && sorted.find(n => lower.startsWith('@' + n.toLowerCase(), i) && !/\w/.test(text[i + 1 + n.length] || ' '));
+        if (n) { if (i > last) out.push(text.slice(last, i)); out.push({ m: text.substr(i, n.length + 1), who: n }); i += n.length + 1; last = i; } else i++;
+    }
+    if (last < text.length) out.push(text.slice(last));
+    return out;
+}
+function richText(text) { // returns [element, mentionsMe]; text nodes only, so no HTML injection
+    const t = h('div', 'text'), mine = (S.me?.username || '').toLowerCase();
+    let me = false;
+    segments(text, mnames()).forEach(s => {
+        if (typeof s === 'string') return t.append(s);
+        const hit = s.who.toLowerCase() === mine; if (hit) me = true;
+        t.append(h('span', 'mention' + (hit ? ' me' : ''), s.m));
+    });
+    return [t, me];
+}
+const mpop = $('mention-pop'); let mSel = 0, mList = [];
+function updateMentions() {
+    const m = input.value.slice(0, input.selectionStart).match(/(^|\s)@([^\s@]{0,20})$/);
+    mList = m ? [...new Set(mnames())].filter(n => n.toLowerCase().startsWith(m[2].toLowerCase())).slice(0, 6) : [];
+    if (!mList.length) return mpop.classList.add('hidden');
+    mSel = Math.min(mSel, mList.length - 1);
+    mpop.textContent = '';
+    mList.forEach((n, i) => { const b = h('button', i === mSel ? 'on' : '', '@' + n); b.type = 'button'; b.onmousedown = (e) => { e.preventDefault(); pickMention(n); }; mpop.append(b); });
+    mpop.classList.remove('hidden');
+}
+function pickMention(n) {
+    const pos = input.selectionStart, start = input.value.slice(0, pos).replace(/@[^\s@]{0,20}$/, '').length;
+    input.setRangeText('@' + n + ' ', start, pos, 'end'); input.focus(); mpop.classList.add('hidden'); autosize();
+}
+input.addEventListener('input', () => { mSel = 0; updateMentions(); });
+input.addEventListener('blur', () => mpop.classList.add('hidden'));
+input.addEventListener('keydown', (e) => { // capture: runs before the Enter-to-send handler
+    if (mpop.classList.contains('hidden')) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { mSel = (mSel + (e.key === 'ArrowDown' ? 1 : mList.length - 1)) % mList.length; updateMentions(); }
+    else if (e.key === 'Enter' || e.key === 'Tab') pickMention(mList[mSel]);
+    else if (e.key === 'Escape') mpop.classList.add('hidden');
+    else return;
+    e.preventDefault(); e.stopImmediatePropagation();
+}, true);
 $('emoji-btn').onclick = () => pop.classList.toggle('hidden');
 document.addEventListener('click', (e) => { if (!e.target.closest('#emoji-pop, #emoji-btn')) pop.classList.add('hidden'); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') pop.classList.add('hidden'); });
@@ -708,7 +774,7 @@ $('dev-toggle').onchange = (e) => {
     S.sig = ''; renderAll(); if (S.view !== 'home') loadMessages(true); // rebuild so right-click menus pick up the change
 };
 const pend = {}; // pending image URL per upload widget (pf = profile, sv = server)
-const paint = (k, name) => { const el = $(k + '-ava'); el.textContent = pend[k] ? '' : (name || '?')[0].toUpperCase(); el.style.background = bg(pend[k], name); };
+const paint = (k, name) => { const el = $(k + '-ava'); el.textContent = pend[k] ? '' : ini(name); el.style.background = bg(pend[k], name); };
 
 async function uploadImage(file, kind) {
     const sig = await post({ action: 'upload-sign', kind });
