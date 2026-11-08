@@ -115,7 +115,7 @@ module.exports = async function handler(req, res) {
     if (typeof body === 'string') { try { body = JSON.parse(body); } catch {} }
 
     await connectDB();
-    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon } = body;
+    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio } = body;
 
     if (action === 'register') {
       const key = String(email || '').trim().toLowerCase();
@@ -163,8 +163,8 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'me') {
-      const me = await User.findById(auth.userId).select('e n av').lean();
-      return res.status(200).json({ id: me._id, email: me.e, username: me.n, avatar: me.av || '' });
+      const me = await User.findById(auth.userId).select('e n av b').lean();
+      return res.status(200).json({ id: me._id, email: me.e, username: me.n, avatar: me.av || '', bio: me.b || '' });
     }
 
     if (action === 'profile-update') {
@@ -172,8 +172,9 @@ module.exports = async function handler(req, res) {
       if (!uname) return res.status(400).json({ error: 'Username required.' });
       if (await User.exists({ n: uname, _id: { $ne: auth.userId } })) return res.status(400).json({ error: 'Username taken.' });
       if (!okImg(avatar ?? '')) return res.status(400).json({ error: 'Invalid image.' });
-      await User.updateOne({ _id: auth.userId }, { n: uname, av: avatar || '' });
-      return res.status(200).json({ username: uname, avatar: avatar || '' });
+      const cleanBio = String(bio || '').trim().slice(0, 160);
+      await User.updateOne({ _id: auth.userId }, { n: uname, av: avatar || '', b: cleanBio });
+      return res.status(200).json({ username: uname, avatar: avatar || '', bio: cleanBio });
     }
 
     if (action === 'upload-sign') {
@@ -212,8 +213,8 @@ module.exports = async function handler(req, res) {
 
     if (action === 'friends') {
       const docs = await Friend.find({ $or: [{ a: auth.userId }, { b: auth.userId }], s: 'a' }).lean();
-      const users = await User.find({ _id: { $in: docs.map(f => f.a === auth.userId ? f.b : f.a) } }).select('e n av').lean();
-      return res.status(200).json({ friends: users.map(u => ({ id: u._id, email: u.e, username: u.n, avatar: u.av })) });
+      const users = await User.find({ _id: { $in: docs.map(f => f.a === auth.userId ? f.b : f.a) } }).select('e n av b').lean();
+      return res.status(200).json({ friends: users.map(u => ({ id: u._id, email: u.e, username: u.n, avatar: u.av, bio: u.b })) });
     }
 
     if (action === 'servers') {
@@ -255,8 +256,8 @@ module.exports = async function handler(req, res) {
     if (action === 'members') {
       const server = await Server.findOne({ _id: Number(id), m: auth.userId }).lean();
       if (!server) return res.status(403).json({ error: 'Not a member.' });
-      const users = await User.find({ _id: { $in: server.m } }).select('n av').lean();
-      return res.status(200).json({ owner: server.o, members: users.map(u => ({ id: u._id, username: u.n, avatar: u.av })) });
+      const users = await User.find({ _id: { $in: server.m } }).select('n av b').lean();
+      return res.status(200).json({ owner: server.o, members: users.map(u => ({ id: u._id, username: u.n, avatar: u.av, bio: u.b })) });
     }
 
     if (action === 'channel-delete') {

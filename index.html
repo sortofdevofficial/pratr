@@ -88,7 +88,7 @@
         <div class="home-wrap">
           <div class="panel profile-card">
             <div class="ava lg" id="hp-ava"></div>
-            <div class="meta"><strong id="hp-name"></strong><small id="hp-email"></small></div>
+            <div class="meta"><strong id="hp-name"></strong><small id="hp-email"></small><small id="hp-bio"></small></div>
             <button class="btn primary" id="hp-edit" type="button">Edit profile</button>
           </div>
           <div class="panel">
@@ -123,8 +123,10 @@
           <div class="messages" id="messages"></div>
           <div class="empty hidden" id="chat-empty"></div>
           <div class="composer-wrap" id="composer-wrap">
+            <div class="emoji-pop hidden" id="emoji-pop"></div>
             <form id="chat-form" class="composer">
               <textarea id="chat-input" rows="1" maxlength="2000" placeholder="Message" autocomplete="off"></textarea>
+              <button type="button" class="icon-btn" id="emoji-btn" title="Emoji" aria-label="Emoji"><svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg></button>
               <button type="submit" id="chat-send" class="send" aria-label="Send"><svg viewBox="0 0 24 24" class="ic"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
             </form>
           </div>
@@ -194,6 +196,8 @@
     <div class="up"><button type="button" class="ava lg" id="pf-ava" title="Change photo"></button><input type="file" id="pf-file" accept="image/*" hidden>
       <div class="up-btns"><button type="button" class="btn ghost" id="pf-pick">Upload photo</button><button type="button" class="linkbtn" id="pf-clear">Remove</button></div></div>
     <form id="profile-form"><label class="field"><span>Username</span><input id="profile-name" maxlength="20" autocomplete="off" spellcheck="false" required></label>
+    <label class="field"><span>Bio</span><textarea id="profile-bio" rows="3" maxlength="160" placeholder="Tell people a bit about you"></textarea></label>
+    <label class="dev-row"><input type="checkbox" id="dev-toggle"><span><strong>Developer mode</strong><small>Right-click users, channels, servers and messages to copy their IDs.</small></span></label>
     <p class="msg-err" id="profile-msg"></p>
     <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>
   </div>

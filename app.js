@@ -131,6 +131,7 @@ function setMe(u) {
     const letter = u.avatar ? '' : name[0].toUpperCase();
     $('me-name').textContent = $('hp-name').textContent = name;
     $('me-email').textContent = $('hp-email').textContent = u.email || '';
+    $('hp-bio').textContent = u.bio || '';
     $('me-initial').textContent = $('hp-ava').textContent = letter;
     $('me-ava').style.background = $('hp-ava').style.background = bg(u.avatar, name);
 }
@@ -158,12 +159,14 @@ function startTimers() {
         if (document.hidden) return;
         await loadServers(); await loadFriends();
         if (S.view === 'server' && S.server) {
-            const before = S.channelId, n = S.channels.length;
+            const before = S.channelId, old = S.channels.map(c => c.id);
             await loadChannels();
             loadMembers();
-            if (before !== S.channelId || n !== S.channels.length) { renderAll(); loadMessages(true); } else renderSide();
+            const fresh = S.channels.filter(c => !old.includes(c.id));
+            if (fresh.length && old.length) toast(`New channel #${fresh[0].name}`);
+            if (before !== S.channelId) { renderAll(); loadMessages(true); } else renderSide();
         }
-    }, 15000);
+    }, 5000);
 }
 
 /* ---------- data ---------- */
@@ -267,7 +270,7 @@ function renderRail() {
         const b = h('button', 'rail-btn' + (S.server && S.server.id === s.id ? ' active' : ''), s.icon ? '' : s.name[0].toUpperCase());
         if (s.icon) b.style.background = bg(s.icon);
         b.title = s.name;
-        b._ctx = () => s.owner === S.me?.id ? [['Server settings', () => openServer(s.id).then(openServerSettings)]] : [];
+        b._ctx = () => [...(s.owner === S.me?.id ? [['Server settings', () => openServer(s.id).then(openServerSettings)]] : []), ['Copy server name', () => copy(s.name)], ...idItem('server', s.id)];
         b.onclick = () => openServer(s.id);
         box.append(b);
     });
@@ -317,7 +320,7 @@ function renderSide() {
                 del.onclick = (e) => { e.stopPropagation(); deleteChannel(c); };
                 it.append(del);
             }
-            it._ctx = [['Open channel', () => selectChannel(c.id)], ['Copy name', () => copy(c.name)], ...(isOwner() ? ['-', ['Delete channel', () => deleteChannel(c), true]] : [])];
+            it._ctx = [['Open channel', () => selectChannel(c.id)], ['Copy name', () => copy(c.name)], ...idItem('channel', c.id), ...(isOwner() ? ['-', ['Delete channel', () => deleteChannel(c), true]] : [])];
             it.onclick = () => selectChannel(c.id);
             it.onkeydown = (e) => { if (e.key === 'Enter') selectChannel(c.id); };
             list.append(it);
@@ -334,7 +337,7 @@ function renderFriends() {
     S.friends.forEach(u => {
         const c = h('div', 'friend-card');
         const meta = h('div', 'meta');
-        meta.append(h('strong', '', u.username || u.email), h('small', '', u.email || ''));
+        meta.append(h('strong', '', u.username || u.email), h('small', '', u.bio || u.email || ''));
         const btn = h('button', 'btn ghost', 'Message');
         btn.onclick = () => openDM(u);
         c._ctx = userItems(u);
@@ -396,7 +399,7 @@ function renderMembers() {
     box.textContent = '';
     S.members.forEach(m => {
         const r = h('div', 'mem');
-        r._ctx = userItems(m);
+        r._ctx = userItems(m); r.title = m.bio || '';
         r.append(avatar(m.username, 'sm', m.avatar), h('span', '', m.username || 'Member'));
         if (S.server && m.id === S.server.owner) r.append(h('em', 'badge', 'OWNER'));
         box.append(r);
@@ -441,7 +444,7 @@ function renderMessages(list, force) {
             body.append(head);
         }
         body.append(h('div', 'text', m.text));
-        row._ctx = [...userItems(m.author), ['Copy message', () => copy(m.text)]];
+        row._ctx = [...userItems(m.author), ['Copy message', () => copy(m.text)], ...idItem('message', m.id)];
         row.append(gutter, body);
         box.append(row);
         prev = m;
@@ -600,7 +603,27 @@ $('server-menu').onclick = async (e) => {
 
 window.addEventListener('hashchange', () => { if (S.token && S.me) handleInvite(); });
 
+/* ---------- emoji picker (unicode) ---------- */
+const EMOJI = {
+    Smileys: '😀 😃 😄 😁 😆 😅 😂 🤣 🥲 😊 😇 🙂 😉 😍 🥰 😘 😋 😜 🤪 😎 🤩 🥳 😏 😒 😞 😔 😢 😭 😤 😡 🤯 😱 😴 🤔 🫡 🤗 🫠 🙄 😬 🥺',
+    Gestures: '👍 👎 👏 🙌 🙏 💪 👀 👋 🤝 ✌️ 🤞 👌 🤌 🫶 ❤️ 🧡 💛 💚 💙 💜 🖤 🤍 💔 🔥 ✨ 🎉 💯 ✅ ❌ ⚡',
+    Fun: '🎮 🎧 🎵 ⚽ 🏀 🍕 🍔 🍟 🍿 ☕ 🍺 🎂 🚀 🌈 ⭐ 🌙 ☀️ 🐶 🐱 🦊 🐼 🐸 👻 💀 🤖 🌹 🎁 📌 💡 🏆'
+};
+const pop = $('emoji-pop');
+Object.entries(EMOJI).forEach(([title, list]) => {
+    const grid = h('div', 'emoji-grid');
+    list.split(' ').forEach(e => { const b = h('button', '', e); b.type = 'button'; b.onclick = () => { input.setRangeText(e, input.selectionStart, input.selectionEnd, 'end'); input.focus(); autosize(); }; grid.append(b); });
+    pop.append(h('h5', '', title), grid);
+});
+$('emoji-btn').onclick = () => pop.classList.toggle('hidden');
+document.addEventListener('click', (e) => { if (!e.target.closest('#emoji-pop, #emoji-btn')) pop.classList.add('hidden'); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') pop.classList.add('hidden'); });
+
 /* ---------- profile ---------- */
+$('dev-toggle').onchange = (e) => {
+    try { localStorage.setItem('dev', e.target.checked ? '1' : '0'); } catch {}
+    S.sig = ''; renderAll(); if (S.view !== 'home') loadMessages(true); // rebuild so right-click menus pick up the change
+};
 const pend = {}; // pending image URL per upload widget (pf = profile, sv = server)
 const paint = (k, name) => { const el = $(k + '-ava'); el.textContent = pend[k] ? '' : (name || '?')[0].toUpperCase(); el.style.background = bg(pend[k], name); };
 
@@ -639,6 +662,7 @@ function openProfile() {
     $('profile-msg').textContent = '';
     $('profile-name').value = S.me ? S.me.username : '';
     pend.pf = S.me?.avatar || ''; paint('pf', $('profile-name').value);
+    $('profile-bio').value = S.me?.bio || ''; $('dev-toggle').checked = dev();
     openModal('modal-profile');
 }
 function openServerSettings() {
@@ -656,9 +680,9 @@ $('sv-form').onsubmit = async (e) => {
 };
 $('profile-form').onsubmit = async (e) => {
     e.preventDefault();
-    const out = await post({ action: 'profile-update', username: $('profile-name').value, avatar: pend.pf });
+    const out = await post({ action: 'profile-update', username: $('profile-name').value, avatar: pend.pf, bio: $('profile-bio').value });
     if (!out.res.ok) { $('profile-msg').textContent = out.data.error || 'Could not save.'; return; }
-    S.me.username = out.data.username; S.me.avatar = out.data.avatar; setMe(S.me);
+    S.me.username = out.data.username; S.me.avatar = out.data.avatar; S.me.bio = out.data.bio; setMe(S.me);
     closeModals(); toast('Profile updated.');
     loadMessages(true); loadMembers();
 };
@@ -666,12 +690,14 @@ $('profile-form').onsubmit = async (e) => {
 /* ---------- context menu (replaces the browser's) ---------- */
 const ctx = $('ctx-menu');
 const copy = (t) => navigator.clipboard.writeText(t).then(() => toast('Copied.'), () => toast('Copy failed.', true));
+const dev = () => { try { return localStorage.getItem('dev') === '1'; } catch { return false; } };
+const idItem = (label, v) => dev() ? [[`Copy ${label} ID`, () => copy(String(v))]] : [];
 function userItems(u) {
-    if (!u || (S.me && u.id === S.me.id)) return [];
-    const f = S.friends.find(x => x.id === u.id);
-    return [f ? ['Message', () => openDM(f)] : ['Add friend', () => addFriend(u.username || u.email)], ['Copy username', () => copy(u.username || u.email)]];
+    if (!u) return [];
+    const mine = S.me && u.id === S.me.id, f = S.friends.find(x => x.id === u.id);
+    return [...(mine ? [] : [f ? ['Message', () => openDM(f)] : ['Add friend', () => addFriend(u.username || u.email)], ['Copy username', () => copy(u.username || u.email)]]), ...idItem('user', u.id)];
 }
-document.querySelector('.user-panel')._ctx = () => [['Edit profile', openProfile], ['Copy username', () => copy(S.me.username)], '-', ['Log out', () => $('logout-btn').click(), true]];
+document.querySelector('.user-panel')._ctx = () => [['Edit profile', openProfile], ['Copy username', () => copy(S.me.username)], ...idItem('user', S.me.id), '-', ['Log out', () => $('logout-btn').click(), true]];
 
 document.addEventListener('contextmenu', (e) => {
     e.preventDefault();
