@@ -236,6 +236,9 @@ textarea { resize: none; display: block; }
 .mention-pop button { display: block; width: 100%; text-align: left; padding: 8px 10px; border-radius: 8px; color: #d8d2c4; }
 .mention-pop button.on, .mention-pop button:hover { background: var(--bone); color: var(--navy); }
 
+.dot.idle { background: linear-gradient(135deg, var(--bone) 50%, var(--bg1) 50%); } .dot.dnd { background: var(--coral); }
+.dm-item .dot { border-color: var(--bg2); } .friend-card .dot { border-color: var(--bg3); } .user-panel .ava { cursor: pointer; }
+
 /* ---------- responsive ---------- */
 @media (max-width: 860px) {
   .menu-btn { display: inline-flex; }

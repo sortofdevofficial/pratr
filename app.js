@@ -13,13 +13,16 @@ const S = {
     token: localStorage.getItem('token') || '',
     me: null, servers: [], friends: [], view: 'home',
     server: null, channels: [], channelId: null, dm: null, members: [],
-    last: {}, chLoaded: false, sig: '', sending: false, membersOn: window.innerWidth > 860,
+    last: {}, chLoaded: false, sig: '', sending: false, membersOn: (() => { try { const v = localStorage.getItem('members'); if (v) return v === '1'; } catch {} return window.innerWidth > 760; })(),
     login: true, t1: null, t2: null, maxId: {}
 };
 
 /* ---------- helpers ---------- */
 const color = (s) => { let x = 0; for (const c of String(s)) x = (x * 31 + c.charCodeAt(0)) % 360; return `hsl(${x} 55% 48%)`; };
 const ini = (s) => (Array.from(String(s || '?'))[0] || '?').toUpperCase();
+const dotCls = (st) => 'dot' + (st === 'idle' ? ' idle' : st === 'dnd' ? ' dnd' : st === 'online' || !st ? '' : ' off');
+const dot = (st) => h('i', dotCls(st));
+function statEl(on, total) { const s = h('small', 'stat'); s.append(h('i', 'pdot'), `${on} online`, h('i', 'pdot off'), `${total - on} offline`); return s; }
 const bg = (url, name) => url ? `center/cover url("${url}")` : color(name || '?');
 function avatar(name, cls = '', url = '') { const a = h('div', 'ava ' + cls, url ? '' : ini(name)); a.style.background = bg(url, name); return a; }
 const isOwner = () => !!(S.me && S.server && S.server.owner === S.me.id);
@@ -133,6 +136,7 @@ function setMe(u) {
     $('me-name').textContent = $('hp-name').textContent = name;
     $('me-email').textContent = $('hp-email').textContent = u.email || '';
     $('hp-bio').textContent = u.bio || '';
+    $('me-ava').querySelector('.dot').className = dotCls(u.status);
     $('me-initial').textContent = $('hp-ava').textContent = letter;
     $('me-ava').style.background = $('hp-ava').style.background = bg(u.avatar, name);
 }
@@ -253,7 +257,7 @@ async function loadDiscover() {
             }
             openServer(s.id);
         };
-        b.append(h('strong', '', s.name), h('p', '', s.desc || 'No description yet.'), h('small', '', `${s.count} member${s.count === 1 ? '' : 's'}`), btn);
+        b.append(h('strong', '', s.name), h('p', '', s.desc || 'No description yet.'), statEl(s.online || 0, s.count), btn);
         c.append(h('div', 'disc-top'), avatar(s.name, 'xl', s.icon), b);
         grid.append(c);
     });
@@ -323,7 +327,8 @@ function renderSide() {
     if (!S.friends.length) dms.append(h('div', 'side-empty', 'Add a friend to start chatting.'));
     S.friends.forEach(u => {
         const b = h('button', 'dm-item' + (S.view === 'dm' && S.dm && S.dm.id === u.id ? ' active' : ''));
-        b.append(avatar(u.username || u.email, 'sm', u.avatar), h('span', '', u.username || u.email));
+        const da = avatar(u.username || u.email, 'sm', u.avatar); da.append(dot(u.status));
+        b.append(da, h('span', '', u.username || u.email));
         b.onclick = () => openDM(u);
         b._ctx = userItems(u);
         dms.append(b);
@@ -375,7 +380,8 @@ function renderFriends() {
         const btn = h('button', 'btn ghost', 'Message');
         btn.onclick = () => openDM(u);
         c._ctx = userItems(u);
-        c.append(avatar(u.username || u.email, '', u.avatar), meta, btn);
+        const av = avatar(u.username || u.email, '', u.avatar); av.append(dot(u.status));
+        c.append(av, meta, btn);
         grid.append(c);
     });
 }
@@ -437,7 +443,7 @@ function renderDmCard() {
     if (!u) return;
     const n = u.username || u.email, body = h('div', 'dm-body'), about = h('div', 'dm-about');
     about.append(h('h5', '', 'About me'), h('p', '', u.bio || 'No bio yet.'));
-    body.append(h('strong', '', n), h('span', 'badge', 'FRIEND'), about);
+    body.append(h('strong', '', n), h('span', 'badge', 'FRIEND'), h('small', 'muted', SLABEL[u.status] || 'Offline'), about);
     card.textContent = '';
     card.append(h('div', 'dm-banner'), avatar(n, 'xl', u.avatar), body);
 }
@@ -446,13 +452,13 @@ function renderMembers() {
     $('members-count').textContent = S.members.length;
     const box = $('members-list');
     box.textContent = '';
-    const online = S.members.filter(m => m.online || (S.me && m.id === S.me.id)), offline = S.members.filter(m => !online.includes(m));
+    const online = S.members.filter(m => m.status !== 'offline'), offline = S.members.filter(m => !online.includes(m));
     [['Online', online], ['Offline', offline]].forEach(([title, list]) => {
         if (!list.length) return;
         box.append(h('div', 'mem-sec', `${title} — ${list.length}`));
         list.forEach(m => {
             const r = h('div', 'mem' + (title === 'Offline' ? ' off' : '')), a = avatar(m.username, 'sm', m.avatar);
-            a.append(h('i', 'dot' + (title === 'Offline' ? ' off' : '')));
+            a.append(dot(m.status));
             r._ctx = userItems(m); r.title = m.bio || '';
             r.append(a, h('span', '', m.username || 'Member'));
             if (S.server && m.id === S.server.owner) r.append(h('em', 'badge', 'OWNER'));
@@ -587,9 +593,7 @@ function inviteEmbed(code) {
         box.textContent = '';
         if (i.error || i.expired) { box.className = 'embed dead'; box.textContent = i.error ? 'This invite is invalid.' : `The invite to ${i.name} has expired.`; return; }
         const meta = h('div', 'meta'), btn = h('button', 'btn ' + (i.joined ? 'ghost' : 'primary'), i.joined ? 'Open' : 'Join');
-        const on = i.online || 0, stat = h('small', 'stat');
-        stat.append(h('i', 'pdot'), `${on} online`, h('i', 'pdot off'), `${i.count - on} offline`);
-        meta.append(h('strong', '', i.name), stat);
+        meta.append(h('strong', '', i.name), statEl(i.online || 0, i.count));
         btn.onclick = async () => { if (i.joined) return openServer(i.id); if (await joinWithCode(code)) i.joined = true; };
         box.append(avatar(i.name, 'sm', i.icon), meta, btn);
     };
@@ -662,7 +666,7 @@ $('invite-copy').onclick = async () => {
     try { await navigator.clipboard.writeText($('invite-link').value); toast('Invite link copied!'); }
     catch { $('invite-link').select(); toast('Press Ctrl+C to copy.'); }
 };
-$('members-btn').onclick = () => { S.membersOn = !S.membersOn; renderMain(); };
+$('members-btn').onclick = () => { S.membersOn = !S.membersOn; try { localStorage.setItem('members', S.membersOn ? '1' : '0'); } catch {} renderMain(); };
 
 /* ---------- server menu ---------- */
 $('server-menu-btn').onclick = (e) => {
@@ -846,13 +850,9 @@ function userItems(u) {
     const mine = S.me && u.id === S.me.id, f = S.friends.find(x => x.id === u.id);
     return [...(mine ? [] : [f ? ['Message', () => openDM(f)] : ['Add friend', () => addFriend(u.username || u.email)], ['Copy username', () => copy(u.username || u.email)]]), ...idItem('user', u.id)];
 }
-document.querySelector('.user-panel')._ctx = () => [['Edit profile', openProfile], ['Copy username', () => copy(S.me.username)], ...idItem('user', S.me.id), '-', ['Log out', () => $('logout-btn').click(), true]];
+document.querySelector('.user-panel')._ctx = () => [['Edit profile', openProfile], ['Copy username', () => copy(S.me.username)], ...idItem('user', S.me.id), '-', ...statusItems(), '-', ['Log out', () => $('logout-btn').click(), true]];
 
-document.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    let items = null;
-    for (let n = e.target; n && !items; n = n.parentElement) if (n._ctx) items = typeof n._ctx === 'function' ? n._ctx() : n._ctx;
-    if (!items || !items.length || $('app').classList.contains('hidden')) return ctx.classList.add('hidden');
+function showMenu(items, x, y, above = false) {
     ctx.textContent = '';
     items.forEach(it => {
         if (it === '-') return ctx.append(document.createElement('hr'));
@@ -861,8 +861,27 @@ document.addEventListener('contextmenu', (e) => {
         ctx.append(b);
     });
     ctx.classList.remove('hidden');
-    ctx.style.left = Math.min(e.clientX, innerWidth - 228) + 'px';
-    ctx.style.top = Math.min(e.clientY, innerHeight - ctx.offsetHeight - 8) + 'px';
+    ctx.style.left = Math.max(8, Math.min(x, innerWidth - 228)) + 'px';
+    ctx.style.top = Math.max(8, above ? y - ctx.offsetHeight : Math.min(y, innerHeight - ctx.offsetHeight - 8)) + 'px';
+}
+
+/* ---------- presence / status ---------- */
+const STATUS = [['online', 'Online', '●'], ['idle', 'Idle', '◐'], ['dnd', 'Do not disturb', '●'], ['invisible', 'Invisible', '○']];
+const SLABEL = { online: 'Online', idle: 'Idle', dnd: 'Do not disturb' };
+const statusItems = () => STATUS.map(([k, label, g]) => [`${g} ${label}${(S.me?.status || 'online') === k ? '  ✓' : ''}`, () => setStatus(k)]);
+async function setStatus(k) {
+    const out = await post({ action: 'presence-set', status: k });
+    if (!out.res.ok) return toast(out.data.error || 'Could not change status.', true);
+    S.me.status = k; setMe(S.me); loadMembers();
+}
+$('me-ava').onclick = (e) => { const r = e.currentTarget.getBoundingClientRect(); showMenu(statusItems(), r.left, r.top - 8, true); };
+
+document.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    let items = null;
+    for (let n = e.target; n && !items; n = n.parentElement) if (n._ctx) items = typeof n._ctx === 'function' ? n._ctx() : n._ctx;
+    if (!items || !items.length || $('app').classList.contains('hidden')) return ctx.classList.add('hidden');
+    showMenu(items, e.clientX, e.clientY);
 });
 document.addEventListener('pointerdown', (e) => { if (!e.target.closest('#ctx-menu')) ctx.classList.add('hidden'); });
 addEventListener('resize', () => ctx.classList.add('hidden'));

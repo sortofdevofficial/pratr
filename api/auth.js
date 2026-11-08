@@ -8,6 +8,7 @@ mongoose.set('bufferCommands', false);
 const db = globalThis.__pratrDb || (globalThis.__pratrDb = { conn: null, promise: null });
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 const onlineCut = () => nowSeconds() - 45; // seen within the last 45s = online
+const statusOf = (u) => (u.ls || 0) > onlineCut() && u.ps !== 'invisible' ? (u.ps || 'online') : 'offline'; // what other people see
 
 async function connectDB() {
   if (db.conn) return db.conn;
@@ -28,7 +29,8 @@ const userSchema = new mongoose.Schema({
   i: Number,
   b: String,
   av: String,
-  ls: Number
+  ls: Number,
+  ps: String
 }, { versionKey: false });
 const User = mongoose.models.User || mongoose.model('User', userSchema);
 
@@ -143,7 +145,7 @@ module.exports = async function handler(req, res) {
     if (typeof body === 'string') { try { body = JSON.parse(body); } catch {} }
 
     await connectDB();
-    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q } = body;
+    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q, status } = body;
 
     if (action === 'register') {
       const key = String(email || '').trim().toLowerCase();
@@ -192,8 +194,14 @@ module.exports = async function handler(req, res) {
 
     if (action === 'me') {
       await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
-      const me = await User.findById(auth.userId).select('e n av b').lean();
-      return res.status(200).json({ id: me._id, email: me.e, username: me.n, avatar: me.av || '', bio: me.b || '' });
+      const me = await User.findById(auth.userId).select('e n av b ps').lean();
+      return res.status(200).json({ id: me._id, email: me.e, username: me.n, avatar: me.av || '', bio: me.b || '', status: me.ps || 'online' });
+    }
+
+    if (action === 'presence-set') {
+      const st = ['online', 'idle', 'dnd', 'invisible'].includes(status) ? status : 'online';
+      await User.updateOne({ _id: auth.userId }, { ps: st, ls: nowSeconds() });
+      return res.status(200).json({ status: st });
     }
 
     if (action === 'profile-update') {
@@ -261,7 +269,7 @@ module.exports = async function handler(req, res) {
     if (action === 'invite-info') {
       const found = await findInvite(String(code || ''));
       if (!found) return res.status(404).json({ error: 'Invalid invite.' });
-      const online = await User.countDocuments({ _id: { $in: found.server.m }, ls: { $gt: onlineCut() } });
+      const online = await User.countDocuments({ _id: { $in: found.server.m }, ls: { $gt: onlineCut() }, ps: { $ne: 'invisible' } });
       return res.status(200).json({ ...srv(found.server), online, expired: found.expired, joined: found.server.m.includes(auth.userId) });
     }
 
@@ -269,7 +277,9 @@ module.exports = async function handler(req, res) {
       const term = String(q || '').replace(/[^a-zA-Z0-9 ]/g, '').trim().slice(0, 40);
       const list = await Server.find({ pub: true, ...(term ? { n: new RegExp(term, 'i') } : {}) }).sort({ _id: -1 }).limit(60).lean();
       list.sort((a, b) => b.m.length - a.m.length);
-      return res.status(200).json({ servers: list.map(s => ({ ...srv(s), joined: s.m.includes(auth.userId) })) });
+      const ids = [...new Set(list.flatMap(s => s.m))];
+      const on = new Set((await User.find({ _id: { $in: ids }, ls: { $gt: onlineCut() }, ps: { $ne: 'invisible' } }).select('_id').lean()).map(u => u._id));
+      return res.status(200).json({ servers: list.map(s => ({ ...srv(s), online: s.m.filter(i => on.has(i)).length, joined: s.m.includes(auth.userId) })) });
     }
 
     if (action === 'server-join-public') {
@@ -291,8 +301,8 @@ module.exports = async function handler(req, res) {
 
     if (action === 'friends') {
       const docs = await Friend.find({ $or: [{ a: auth.userId }, { b: auth.userId }], s: 'a' }).lean();
-      const users = await User.find({ _id: { $in: docs.map(f => f.a === auth.userId ? f.b : f.a) } }).select('e n av b').lean();
-      return res.status(200).json({ friends: users.map(u => ({ id: u._id, email: u.e, username: u.n, avatar: u.av, bio: u.b })) });
+      const users = await User.find({ _id: { $in: docs.map(f => f.a === auth.userId ? f.b : f.a) } }).select('e n av b ls ps').lean();
+      return res.status(200).json({ friends: users.map(u => ({ id: u._id, email: u.e, username: u.n, avatar: u.av, bio: u.b, status: statusOf(u) })) });
     }
 
     if (action === 'servers') {
@@ -336,8 +346,8 @@ module.exports = async function handler(req, res) {
       await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
       const server = await Server.findOne({ _id: Number(id), m: auth.userId }).lean();
       if (!server) return res.status(403).json({ error: 'Not a member.' });
-      const users = await User.find({ _id: { $in: server.m } }).select('n av b ls').lean();
-      return res.status(200).json({ owner: server.o, members: users.map(u => ({ id: u._id, username: u.n, avatar: u.av, bio: u.b, online: (u.ls || 0) > onlineCut() })) });
+      const users = await User.find({ _id: { $in: server.m } }).select('n av b ls ps').lean();
+      return res.status(200).json({ owner: server.o, members: users.map(u => ({ id: u._id, username: u.n, avatar: u.av, bio: u.b, status: statusOf(u), online: statusOf(u) !== 'offline' })) });
     }
 
     if (action === 'channel-delete') {
