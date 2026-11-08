@@ -252,3 +252,4 @@ textarea { resize: none; display: block; }
   .inline-form { flex-direction: column; }
   .profile-card { flex-wrap: wrap; }
 }
+.members .mem-sec:first-child { padding-top: 2px; }

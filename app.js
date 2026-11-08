@@ -449,10 +449,11 @@ function renderDmCard() {
 }
 
 function renderMembers() {
-    $('members-count').textContent = S.members.length;
     const box = $('members-list');
     box.textContent = '';
-    const online = S.members.filter(m => m.status !== 'offline'), offline = S.members.filter(m => !online.includes(m));
+    const ownerId = S.server ? S.server.owner : null;
+    const byName = (a, b) => ((b.id === ownerId) - (a.id === ownerId)) || String(a.username || '').localeCompare(String(b.username || ''), undefined, { sensitivity: 'base' });
+    const online = S.members.filter(m => m.status !== 'offline').sort(byName), offline = S.members.filter(m => m.status === 'offline').sort(byName);
     [['Online', online], ['Offline', offline]].forEach(([title, list]) => {
         if (!list.length) return;
         box.append(h('div', 'mem-sec', `${title} — ${list.length}`));
