@@ -253,3 +253,24 @@ textarea { resize: none; display: block; }
   .profile-card { flex-wrap: wrap; }
 }
 .members .mem-sec:first-child { padding-top: 2px; }
+
+/* ---------- voice channels ---------- */
+.ava.xs { width: 24px; height: 24px; font-size: 11px; }
+.ava.speaking { box-shadow: 0 0 0 2px var(--bg1), 0 0 0 4px #3ddc84; }
+.vrow { display: flex; align-items: center; gap: 8px; padding: 4px 10px 4px 34px; color: var(--mut); font-size: 13.5px; border-radius: 8px; }
+.vrow span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vflag { display: inline-flex; color: var(--danger); } .vflag .ic { width: 15px; height: 15px; }
+.voice-bar { display: flex; align-items: center; gap: 4px; margin: 8px 8px 0; padding: 8px 8px 8px 12px; background: var(--bg1); border: 1px solid var(--line); border-radius: 14px; flex: none; }
+.voice-bar .vb-info { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.voice-bar strong { color: #3ddc84; font-size: 13px; } .voice-bar small { color: var(--mut); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.icon-btn.off { color: var(--danger); background: rgba(255, 90, 78, .12); }
+.icon-btn.danger:hover { background: var(--danger); color: #fff; }
+.voice-stage { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.vgrid { flex: 1; display: flex; flex-wrap: wrap; gap: 14px; align-content: center; justify-content: center; padding: 24px; overflow-y: auto; }
+.vtile { width: 170px; height: 150px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: var(--bg2); border: 1px solid var(--line); border-radius: 16px; }
+.vtile .ava.xl { border: 0; width: 64px; height: 64px; font-size: 24px; transition: box-shadow .12s; }
+.vname { display: flex; align-items: center; gap: 6px; font-weight: 600; max-width: 100%; padding: 0 10px; } .vname span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vempty { color: var(--mut); }
+.vctl { display: flex; justify-content: center; gap: 10px; padding: 16px; border-top: 1px solid var(--line); }
+.vctl .btn { display: inline-flex; align-items: center; gap: 8px; } .vctl .btn.off { color: var(--danger); }
+@media (prefers-reduced-motion: reduce) { .vtile .ava.xl { transition: none; } }

@@ -67,6 +67,12 @@
           <div id="channel-list"></div>
         </div>
       </div>
+      <div class="voice-bar hidden" id="voice-bar">
+        <div class="vb-info"><strong id="vb-title">Voice connected</strong><small id="vb-sub"></small></div>
+        <button class="icon-btn" id="vb-mute" type="button"></button>
+        <button class="icon-btn" id="vb-deaf" type="button"></button>
+        <button class="icon-btn danger" id="vb-leave" type="button" title="Disconnect" aria-label="Disconnect"></button>
+      </div>
       <footer class="user-panel">
         <div class="ava sm" id="me-ava"><span id="me-initial">?</span><i class="dot on"></i></div>
         <div class="me-info"><strong id="me-name">…</strong><span id="me-email"></span></div>
@@ -135,6 +141,7 @@
       <div class="chat-body members-on" id="chat-body">
         <div class="chat-col">
           <div class="messages" id="messages"></div>
+          <div class="voice-stage hidden" id="voice-stage"></div>
           <div class="empty hidden" id="chat-empty"></div>
           <div class="composer-wrap" id="composer-wrap">
             <div class="emoji-pop hidden" id="emoji-pop"></div>
@@ -185,8 +192,9 @@
 <div class="modal hidden" id="modal-channel" role="dialog" aria-modal="true">
   <div class="modal-card">
     <button class="modal-x" data-close aria-label="Close">×</button>
-    <h2>Create text channel</h2>
+    <h2>Create channel</h2>
     <form id="channel-create-form">
+      <label class="field"><span>Type</span><select id="new-channel-kind"><option value="t">Text channel</option><option value="v">Voice channel</option></select></label>
       <label class="field"><span>Channel name</span><input id="new-channel-name" placeholder="new-channel" maxlength="40" autocomplete="off" required></label>
       <label class="field"><span>Category</span><input id="new-channel-cat" list="cat-options" maxlength="40" autocomplete="off" value="TEXT CHANNELS"></label>
       <datalist id="cat-options"></datalist>

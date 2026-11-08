@@ -83,9 +83,26 @@ const channelSchema = new mongoose.Schema({
   s: Number,
   n: String,
   cat: { type: String, default: 'TEXT CHANNELS' },
+  k: { type: String, default: 't' }, // 't' = text, 'v' = voice
   d: { type: Number, default: 0 }
 }, { versionKey: false });
 const Channel = mongoose.models.Channel || mongoose.model('Channel', channelSchema, 'channels');
+
+// Voice presence: one row per connected user, refreshed ~1/s by the client. Rows older than VOICE_LIVE seconds are ignored.
+const voiceSchema = new mongoose.Schema({ _id: Number, s: Number, ch: Number, ts: Number, j: Number, mu: Boolean, df: Boolean }, { versionKey: false });
+const Voice = mongoose.models.Voice || mongoose.model('Voice', voiceSchema, 'voice');
+// WebRTC signalling messages (offer/answer/ICE), consumed and deleted by the receiver's next poll.
+const signalSchema = new mongoose.Schema({ to: Number, from: Number, d: String, x: Number }, { versionKey: false });
+signalSchema.index({ to: 1 });
+const Signal = mongoose.models.Signal || mongoose.model('Signal', signalSchema, 'signals');
+const VOICE_LIVE = 15;
+const vLive = () => nowSeconds() - VOICE_LIVE;
+async function voiceRoom(sid, chId) {
+  const vs = await Voice.find({ s: sid, ch: chId, ts: { $gt: vLive() } }).lean();
+  const us = await User.find({ _id: { $in: vs.map(v => v._id) } }).select('n av').lean();
+  const m = Object.fromEntries(us.map(u => [u._id, u]));
+  return vs.filter(v => m[v._id]).map(v => ({ id: v._id, username: m[v._id].n, avatar: m[v._id].av || '', mu: !!v.mu, df: !!v.df, j: v.j || 0 }));
+}
 
 const friendSchema = new mongoose.Schema({
   _id: String,
@@ -193,7 +210,7 @@ module.exports = async function handler(req, res) {
     if (typeof body === 'string') { try { body = JSON.parse(body); } catch {} }
 
     await connectDB();
-    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q, status } = body;
+    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q, status, ck, to, sig, mu, df } = body;
 
     if (action === 'register') {
       const key = String(email || '').trim().toLowerCase();
@@ -371,7 +388,7 @@ module.exports = async function handler(req, res) {
     if (action === 'channels') {
       if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
       const chans = await Channel.find({ s: Number(id), d: { $ne: 1 } }).sort({ _id: 1 }).lean();
-      return res.status(200).json({ channels: chans.map(c => ({ id: c._id, name: c.n, category: c.cat })) });
+      return res.status(200).json({ channels: chans.map(c => ({ id: c._id, name: c.n, category: c.cat, kind: c.k || 't' })) });
     }
 
     if (action === 'channel-create') {
@@ -380,8 +397,10 @@ module.exports = async function handler(req, res) {
       const chId = await nextId(Channel);
       const chName = String(channelName || '').trim().toLowerCase().replace(/\s+/g, '-');
       if (!chName) return res.status(400).json({ error: 'Channel name required.' });
-      await Channel.create({ _id: chId, s: serverId, n: chName, cat: category || 'TEXT CHANNELS' });
-      return res.status(200).json({ channel: { id: chId, name: chName, category: category || 'TEXT CHANNELS' } });
+      const k = ck === 'v' ? 'v' : 't';
+      const cat = String(category || '').trim().slice(0, 40) || (k === 'v' ? 'VOICE CHANNELS' : 'TEXT CHANNELS');
+      await Channel.create({ _id: chId, s: serverId, n: chName, cat, k });
+      return res.status(200).json({ channel: { id: chId, name: chName, category: cat, kind: k } });
     }
 
     if (action === 'server-invite') {
@@ -418,7 +437,7 @@ module.exports = async function handler(req, res) {
       let match;
       if (isServer) {
         if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
-        if (!(await Channel.exists({ _id: Number(channelId), s: Number(id), d: { $ne: 1 } }))) return res.status(404).json({ error: 'Channel not found.' });
+        if (!(await Channel.exists({ _id: Number(channelId), s: Number(id), k: { $ne: 'v' }, d: { $ne: 1 } }))) return res.status(404).json({ error: 'Channel not found.' });
         match = { s: Number(id), ch: Number(channelId) };
       } else {
         if (!(await areFriends(auth.userId, Number(id)))) return res.status(403).json({ error: 'You can only message friends.' });
@@ -438,7 +457,7 @@ module.exports = async function handler(req, res) {
       let target;
       if (kind === 'server') {
         if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
-        if (!(await Channel.exists({ _id: Number(channelId), s: Number(id), d: { $ne: 1 } }))) return res.status(400).json({ error: 'This server has no such text channel.' });
+        if (!(await Channel.exists({ _id: Number(channelId), s: Number(id), k: { $ne: 'v' }, d: { $ne: 1 } }))) return res.status(400).json({ error: 'This server has no such text channel.' });
         target = { s: Number(id), ch: Number(channelId) };
       } else {
         if (!(await areFriends(auth.userId, Number(id)))) return res.status(403).json({ error: 'You can only message friends.' });
@@ -446,6 +465,58 @@ module.exports = async function handler(req, res) {
       }
       const msg = await Msg.create({ _id: await nextId(Msg), a: auth.userId, ...target, m: clean });
       return res.status(200).json({ message: { id: msg._id, mine: true, text: msg.m, t: msg.t } });
+    }
+
+    // ---------- voice ----------
+    if (action === 'voice-ice') {
+      const ice = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
+      if (process.env.TURN_URL) ice.push({ urls: String(process.env.TURN_URL).split(','), username: process.env.TURN_USER || '', credential: process.env.TURN_PASS || '' });
+      return res.status(200).json({ iceServers: ice });
+    }
+
+    if (action === 'voice-join') {
+      if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
+      const ch = await Channel.findOne({ _id: Number(channelId), s: Number(id), k: 'v', d: { $ne: 1 } }).lean();
+      if (!ch) return res.status(404).json({ error: 'Voice channel not found.' });
+      await Signal.deleteMany({ $or: [{ to: auth.userId }, { from: auth.userId }] });
+      await Voice.updateOne({ _id: auth.userId }, { s: ch.s, ch: ch._id, ts: nowSeconds(), j: Date.now(), mu: !!mu, df: !!df }, { upsert: true });
+      await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
+      return res.status(200).json({ peers: await voiceRoom(ch.s, ch._id) });
+    }
+
+    if (action === 'voice-sync') {
+      const v = await Voice.findById(auth.userId).lean();
+      if (!v) return res.status(404).json({ error: 'Not in voice.' });
+      await Voice.updateOne({ _id: auth.userId }, { ts: nowSeconds(), mu: !!mu, df: !!df });
+      await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
+      const sigs = await Signal.find({ to: auth.userId, x: { $gt: nowSeconds() } }).sort({ _id: 1 }).limit(200).lean();
+      await Signal.deleteMany({ to: auth.userId, $or: [{ _id: { $in: sigs.map(x => x._id) } }, { x: { $lte: nowSeconds() } }] });
+      return res.status(200).json({ peers: await voiceRoom(v.s, v.ch), signals: sigs.map(x => ({ from: x.from, sig: x.d })) });
+    }
+
+    if (action === 'voice-signal') {
+      const [a, b] = await Promise.all([Voice.findById(auth.userId).lean(), Voice.findById(Number(to)).lean()]);
+      if (!a || !b || a.ch !== b.ch || a.s !== b.s || b.ts <= vLive()) return res.status(404).json({ error: 'Peer is not in your channel.' });
+      const d = String(sig || '');
+      if (!d || d.length > 20000) return res.status(400).json({ error: 'Bad signal.' });
+      await Signal.create({ to: b._id, from: auth.userId, d, x: nowSeconds() + 60 });
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'voice-leave') {
+      await Voice.deleteOne({ _id: auth.userId });
+      await Signal.deleteMany({ $or: [{ to: auth.userId }, { from: auth.userId }] });
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'voice-list') {
+      if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
+      const vs = await Voice.find({ s: Number(id), ts: { $gt: vLive() } }).lean();
+      const us = await User.find({ _id: { $in: vs.map(v => v._id) } }).select('n av').lean();
+      const m = Object.fromEntries(us.map(u => [u._id, u]));
+      const out = {};
+      vs.filter(v => m[v._id]).forEach(v => (out[v.ch] = out[v.ch] || []).push({ id: v._id, username: m[v._id].n, avatar: m[v._id].av || '', mu: !!v.mu, df: !!v.df, j: v.j || 0 }));
+      return res.status(200).json({ voice: out });
     }
 
     return res.status(400).json({ error: 'Invalid action.' });

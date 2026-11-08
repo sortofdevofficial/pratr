@@ -6,7 +6,12 @@ const ICON = {
     hash: svg('M5 9h14M5 15h14M10 3 8 21M16 3l-2 18'),
     trash: svg('M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6'),
     plus: svg('M12 5v14M5 12h14'),
-    chat: svg('M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z')
+    chat: svg('M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z'),
+    speaker: svg('M11 5 6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14'),
+    mic: svg('M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2M12 19v3'),
+    micOff: svg('M2 2l20 20M9 9v3a3 3 0 0 0 5.1 2.1M15 9.3V5a3 3 0 0 0-5.9-.8M19 10v2a7 7 0 0 1-.9 3.4M5 10v2a7 7 0 0 0 11.5 5.4M12 19v3'),
+    headphones: svg('M3 18v-6a9 9 0 0 1 18 0v6M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z'),
+    x: svg('M18 6 6 18M6 6l12 12')
 };
 
 const S = {
@@ -14,8 +19,9 @@ const S = {
     me: null, servers: [], friends: [], view: 'home',
     server: null, channels: [], channelId: null, dm: null, members: [],
     last: {}, chLoaded: false, sig: '', sending: false, membersOn: (() => { try { const v = localStorage.getItem('members'); if (v) return v === '1'; } catch {} return window.innerWidth > 760; })(),
-    login: true, t1: null, t2: null, maxId: {}
+    login: true, t1: null, t2: null, t3: null, maxId: {}, voice: {}
 };
+const V = { on: false, sid: null, chId: null, name: '', sname: '', stream: null, peers: new Map(), watch: new Map(), speak: new Set(), early: {}, cool: {}, joined: {}, ice: [], muted: false, deaf: false, mutedBefore: false, sig: '', ctx: null };
 
 /* ---------- helpers ---------- */
 const color = (s) => { let x = 0; for (const c of String(s)) x = (x * 31 + c.charCodeAt(0)) % 360; return `hsl(${x} 55% 48%)`; };
@@ -119,7 +125,8 @@ function finishLogin(data) {
 }
 
 function clearSession() {
-    clearInterval(S.t1); clearInterval(S.t2);
+    clearInterval(S.t1); clearInterval(S.t2); clearInterval(S.t3);
+    leaveVoice(true);
     S.token = ''; S.me = null; S.servers = []; S.friends = []; S.view = 'home';
     S.server = null; S.dm = null; S.channels = []; S.channelId = null; S.sig = '';
     localStorage.removeItem('token'); localStorage.removeItem('email');
@@ -158,7 +165,8 @@ async function boot() {
 }
 
 function startTimers() {
-    clearInterval(S.t1); clearInterval(S.t2);
+    clearInterval(S.t1); clearInterval(S.t2); clearInterval(S.t3);
+    S.t3 = setInterval(() => { if (!document.hidden) loadVoice(); }, 2500);
     S.t1 = setInterval(() => { if (!document.hidden && S.view !== 'home') loadMessages(false); }, 3000);
     S.t2 = setInterval(async () => {
         if (document.hidden) return;
@@ -166,6 +174,7 @@ function startTimers() {
         if (S.view === 'server' && S.server) {
             const before = S.channelId, old = S.channels.map(c => c.id);
             await loadChannels();
+            if (V.on && V.sid === S.server.id && !S.channels.some(c => c.id === V.chId)) leaveVoice(true);
             loadMembers();
             const fresh = S.channels.filter(c => !old.includes(c.id));
             if (fresh.length && old.length) toast(`New channel #${fresh[0].name}`);
@@ -221,6 +230,7 @@ async function loadMessages(force = false) {
     if (!key) return;
     const isServer = S.view === 'server';
     if (isServer && S.channelId == null) return;
+    if (isServer && (curChannel() || {}).kind === 'v') return;
     const out = await post({ action: 'messages', kind: isServer ? 'server' : 'dm', id: isServer ? S.server.id : S.dm.id, ...(isServer ? { channelId: S.channelId } : {}) });
     if (chatKey() !== key) return; // user navigated away
     if (out.res.status === 404 && isServer) { await loadChannels(); renderAll(); return; }
@@ -294,6 +304,8 @@ function selectChannel(id) {
     renderSide(); renderMain();
     loadMessages(true);
     closeNav();
+    const vc = curChannel();
+    if (vc && vc.kind === 'v') joinVoice(vc);
 }
 
 /* ---------- rendering ---------- */
@@ -352,7 +364,7 @@ function renderSide() {
         chans.forEach(c => {
             const it = h('div', 'ch-item' + (c.id === S.channelId ? ' active' : ''));
             it.tabIndex = 0; it.setAttribute('role', 'button');
-            it.innerHTML = ICON.hash;
+            it.innerHTML = c.kind === 'v' ? ICON.speaker : ICON.hash;
             it.append(h('span', '', c.name));
             if (isOwner()) {
                 const del = h('button', 'ch-del'); del.innerHTML = ICON.trash; del.title = 'Delete channel';
@@ -363,6 +375,7 @@ function renderSide() {
             it.onclick = () => selectChannel(c.id);
             it.onkeydown = (e) => { if (e.key === 'Enter') selectChannel(c.id); };
             list.append(it);
+            if (c.kind === 'v') (S.voice[c.id] || []).forEach(p => list.append(voiceRow(p)));
         });
     });
 }
@@ -398,7 +411,7 @@ function renderMain() {
     const icon = $('chat-icon');
     icon.textContent = '';
     if (isServer) {
-        icon.innerHTML = ICON.hash;
+        icon.innerHTML = ch && ch.kind === 'v' ? ICON.speaker : ICON.hash;
         $('chat-name').textContent = ch ? ch.name : S.server.name;
         $('chat-sub').textContent = ch ? S.server.name : '';
     } else {
@@ -416,8 +429,11 @@ function renderMain() {
     if (!isServer) renderDmCard();
 
     const none = isServer && S.chLoaded && !ch;
-    $('messages').classList.toggle('hidden', none);
-    $('composer-wrap').classList.toggle('hidden', isServer && !ch);
+    const isVoice = !!(ch && ch.kind === 'v');
+    $('messages').classList.toggle('hidden', none || isVoice);
+    $('composer-wrap').classList.toggle('hidden', isServer && (!ch || isVoice));
+    $('voice-stage').classList.toggle('hidden', !isVoice);
+    if (isVoice) renderVoiceStage();
     $('chat-empty').classList.toggle('hidden', !none);
     if (none) renderEmpty();
     $('chat-input').placeholder = isServer ? (ch ? `Message #${ch.name}` : '') : `Message @${S.dm.username || S.dm.email}`;
@@ -628,13 +644,14 @@ function openChannelModal(cat) {
     $('cat-options').textContent = '';
     [...new Set(S.channels.map(c => c.category))].forEach(c => { const o = document.createElement('option'); o.value = c; $('cat-options').append(o); });
     $('new-channel-cat').value = cat || 'TEXT CHANNELS';
+    $('new-channel-kind').value = cat === 'VOICE CHANNELS' ? 'v' : 't';
     $('new-channel-name').value = '';
     openModal('modal-channel');
 }
 $('channel-create-form').onsubmit = async (e) => {
     e.preventDefault();
     if (!S.server) return;
-    const out = await post({ action: 'channel-create', id: S.server.id, channelName: $('new-channel-name').value, category: $('new-channel-cat').value.trim() || 'TEXT CHANNELS' });
+    const out = await post({ action: 'channel-create', id: S.server.id, channelName: $('new-channel-name').value, ck: $('new-channel-kind').value, category: (() => { const c = $('new-channel-cat').value.trim(), v = $('new-channel-kind').value === 'v'; return v && (!c || c === 'TEXT CHANNELS') ? 'VOICE CHANNELS' : c || 'TEXT CHANNELS'; })() });
     if (!out.res.ok) { $('channel-modal-msg').textContent = out.data.error || 'Could not create channel.'; return; }
     closeModals();
     await loadChannels();
@@ -922,6 +939,228 @@ document.addEventListener('keydown', (e) => {
         trail.forEach((p, i) => { const f = 1 - i / N; dot(p.x, p.y, 1.5 + f * 5, 0.15 + f * 0.85); });
     })();
 })();
+
+/* ---------- voice channels (WebRTC mesh; signalling goes through the polling API) ---------- */
+async function loadVoice() {
+    if (S.view !== 'server' || !S.server) return;
+    const sid = S.server.id;
+    const out = await post({ action: 'voice-list', id: sid });
+    if (!out.res.ok || !S.server || S.server.id !== sid) return;
+    const keep = V.on && V.sid === sid ? S.voice[V.chId] : null; // our own sync is fresher
+    S.voice = out.data.voice || {};
+    if (keep) S.voice[V.chId] = keep;
+    refreshVoiceUI();
+}
+function refreshVoiceUI(force) {
+    const sig = JSON.stringify([S.voice, V.on, V.chId, V.muted, V.deaf, S.channelId, S.view]);
+    if (!force && sig === V.sig) return;
+    V.sig = sig;
+    renderSide(); renderVoiceStage(); renderVoiceBar();
+}
+function voiceFlag(p) { if (!p.df && !p.mu) return null; const i = h('i', 'vflag'); i.innerHTML = p.df ? ICON.headphones : ICON.micOff; i.title = p.df ? 'Deafened' : 'Muted'; return i; }
+function voiceAva(p, cls) { const a = avatar(p.username, cls, p.avatar); a.dataset.vu = p.id; a.classList.toggle('speaking', V.speak.has(p.id)); return a; }
+function voiceRow(p) {
+    const r = h('div', 'vrow');
+    r.append(voiceAva(p, 'xs'), h('span', '', p.username || 'Member'));
+    const f = voiceFlag(p); if (f) r.append(f);
+    return r;
+}
+function renderVoiceBar() {
+    $('voice-bar').classList.toggle('hidden', !V.on);
+    if (!V.on) return;
+    $('vb-sub').textContent = `${V.name} / ${V.sname}`;
+    const m = $('vb-mute'), d = $('vb-deaf');
+    m.innerHTML = V.muted ? ICON.micOff : ICON.mic; m.title = V.muted ? 'Unmute' : 'Mute'; m.classList.toggle('off', V.muted);
+    d.innerHTML = ICON.headphones; d.title = V.deaf ? 'Undeafen' : 'Deafen'; d.classList.toggle('off', V.deaf);
+    $('vb-leave').innerHTML = ICON.x;
+}
+function renderVoiceStage() {
+    const box = $('voice-stage'), ch = curChannel();
+    if (!box || !ch || ch.kind !== 'v' || S.view !== 'server') return;
+    const list = S.voice[ch.id] || [], here = V.on && V.chId === ch.id;
+    box.textContent = '';
+    const grid = h('div', 'vgrid');
+    if (!list.length) grid.append(h('div', 'vempty', 'Nobody is in this voice channel yet.'));
+    list.forEach(p => {
+        const t = h('div', 'vtile'), n = h('div', 'vname');
+        n.append(h('span', '', p.username || 'Member'));
+        const f = voiceFlag(p); if (f) n.append(f);
+        t.append(voiceAva(p, 'xl'), n);
+        grid.append(t);
+    });
+    const bar = h('div', 'vctl');
+    if (here) {
+        const m = h('button', 'btn ghost' + (V.muted ? ' off' : '')); m.innerHTML = (V.muted ? ICON.micOff : ICON.mic) + (V.muted ? 'Unmute' : 'Mute'); m.onclick = toggleMute;
+        const d = h('button', 'btn ghost' + (V.deaf ? ' off' : '')); d.innerHTML = ICON.headphones + (V.deaf ? 'Undeafen' : 'Deafen'); d.onclick = toggleDeaf;
+        const l = h('button', 'btn primary'); l.textContent = 'Disconnect'; l.onclick = () => leaveVoice();
+        bar.append(m, d, l);
+    } else {
+        const j = h('button', 'btn primary', 'Join voice'); j.onclick = () => joinVoice(ch);
+        bar.append(j);
+    }
+    box.append(grid, bar);
+}
+
+async function joinVoice(ch) {
+    if (!S.server || !ch || ch.kind !== 'v' || V.joining) return;
+    if (V.on && V.chId === ch.id) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return toast('Voice needs HTTPS and a browser with microphone support.', true);
+    V.joining = true;
+    try {
+        if (V.on) await leaveVoice(true);
+        let stream;
+        try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
+        catch { return toast('Microphone access was blocked. Allow it in your browser to join voice.', true); }
+        const ice = await post({ action: 'voice-ice' });
+        V.ice = (ice.data && ice.data.iceServers) || [{ urls: 'stun:stun.l.google.com:19302' }];
+        const out = await post({ action: 'voice-join', id: S.server.id, channelId: ch.id, mu: V.muted, df: V.deaf });
+        if (!out.res.ok) { stream.getTracks().forEach(t => t.stop()); return toast(out.data.error || 'Could not join voice.', true); }
+        Object.assign(V, { on: true, sid: S.server.id, chId: ch.id, name: ch.name, sname: S.server.name, stream, peers: new Map(), early: {}, cool: {}, joined: {} });
+        stream.getAudioTracks().forEach(t => { t.enabled = !V.muted; });
+        watchAudio(S.me.id, stream);
+        S.voice[ch.id] = out.data.peers || [];
+        clearInterval(V.timer); clearInterval(V.spTimer);
+        V.timer = setInterval(voiceSync, 1000);
+        V.spTimer = setInterval(tickSpeak, 120);
+        refreshVoiceUI(true);
+        voiceSync();
+    } finally { V.joining = false; }
+}
+
+async function leaveVoice(quiet) {
+    if (!V.on) return;
+    V.on = false;
+    clearInterval(V.timer); clearInterval(V.spTimer);
+    [...V.peers.keys()].forEach(dropPeer);
+    V.watch.forEach(w => { try { w.src.disconnect(); } catch {} });
+    V.watch.clear(); V.speak = new Set();
+    if (V.stream) V.stream.getTracks().forEach(t => t.stop());
+    V.stream = null;
+    if (S.me && S.voice[V.chId]) S.voice[V.chId] = S.voice[V.chId].filter(p => p.id !== S.me.id);
+    post({ action: 'voice-leave' });
+    refreshVoiceUI(true);
+}
+
+function applyAudio() {
+    if (V.stream) V.stream.getAudioTracks().forEach(t => { t.enabled = !V.muted; });
+    V.peers.forEach(r => { if (r.audio) r.audio.muted = V.deaf; });
+    const me = (S.voice[V.chId] || []).find(p => S.me && p.id === S.me.id);
+    if (me) { me.mu = V.muted; me.df = V.deaf; }
+    refreshVoiceUI();
+    voiceSync();
+}
+function toggleMute() { if (V.deaf) { V.deaf = false; V.muted = false; } else V.muted = !V.muted; applyAudio(); }
+function toggleDeaf() { if (V.deaf) { V.deaf = false; V.muted = V.mutedBefore || false; } else { V.mutedBefore = V.muted; V.deaf = true; V.muted = true; } applyAudio(); }
+$('vb-mute').onclick = toggleMute;
+$('vb-deaf').onclick = toggleDeaf;
+$('vb-leave').onclick = () => leaveVoice();
+
+async function voiceSync() {
+    if (!V.on || V.busy) return;
+    V.busy = true;
+    let out;
+    try { out = await post({ action: 'voice-sync', mu: V.muted, df: V.deaf }); } finally { V.busy = false; }
+    if (!V.on) return;
+    if (!out.res.ok) {
+        if (out.res.status === 404) { toast('Disconnected from voice.', true); leaveVoice(true); }
+        return;
+    }
+    const peers = out.data.peers || [], myId = S.me.id;
+    S.voice[V.chId] = peers;
+    const ids = new Set(peers.map(p => p.id));
+    peers.forEach(p => { if (V.joined[p.id] && V.joined[p.id] !== p.j) dropPeer(p.id); V.joined[p.id] = p.j; }); // they left and rejoined
+    [...V.peers.keys()].forEach(id => { if (!ids.has(id)) dropPeer(id); });
+    for (const s of out.data.signals || []) { try { await onSignal(s.from, s.sig); } catch (e) { console.warn('signal', e); } }
+    for (const p of peers) {
+        if (p.id === myId || V.peers.has(p.id) || myId > p.id || (V.cool[p.id] || 0) > Date.now()) continue; // lower id makes the offer
+        makePeer(p.id);
+        try { await offerTo(p.id); } catch (e) { console.warn('offer', e); dropPeer(p.id); }
+    }
+    refreshVoiceUI();
+}
+
+function sendSig(to, sig) { post({ action: 'voice-signal', to, sig: JSON.stringify(sig) }); }
+function makePeer(id) {
+    const pc = new RTCPeerConnection({ iceServers: V.ice }), rec = { pc, q: [], ready: false, audio: null };
+    V.peers.set(id, rec);
+    V.stream.getTracks().forEach(t => pc.addTrack(t, V.stream));
+    pc.onicecandidate = (e) => { if (e.candidate && V.peers.get(id) === rec) sendSig(id, { t: 'c', c: e.candidate }); };
+    pc.ontrack = (e) => {
+        const st = e.streams[0];
+        if (!st) return;
+        if (!rec.audio) { rec.audio = new Audio(); rec.audio.autoplay = true; }
+        rec.audio.srcObject = st; rec.audio.muted = V.deaf;
+        rec.audio.play().catch(() => {});
+        watchAudio(id, st);
+    };
+    pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'failed' && V.peers.get(id) === rec) { V.cool[id] = Date.now() + 5000; dropPeer(id); }
+    };
+    return rec;
+}
+async function offerTo(id) {
+    const rec = V.peers.get(id);
+    const o = await rec.pc.createOffer();
+    await rec.pc.setLocalDescription(o);
+    sendSig(id, { t: 'o', s: rec.pc.localDescription });
+}
+function flushIce(rec) { rec.ready = true; rec.q.splice(0).forEach(c => rec.pc.addIceCandidate(c).catch(() => {})); }
+async function onSignal(from, raw) {
+    let m; try { m = JSON.parse(raw); } catch { return; }
+    if (m.t === 'o') {
+        dropPeer(from);
+        const rec = makePeer(from);
+        rec.q.push(...(V.early[from] || [])); delete V.early[from];
+        await rec.pc.setRemoteDescription(m.s);
+        flushIce(rec);
+        const a = await rec.pc.createAnswer();
+        await rec.pc.setLocalDescription(a);
+        sendSig(from, { t: 'a', s: rec.pc.localDescription });
+    } else if (m.t === 'a') {
+        const rec = V.peers.get(from);
+        if (!rec || rec.pc.signalingState !== 'have-local-offer') return;
+        await rec.pc.setRemoteDescription(m.s);
+        flushIce(rec);
+    } else if (m.t === 'c') {
+        const rec = V.peers.get(from);
+        if (rec && rec.ready) rec.pc.addIceCandidate(m.c).catch(() => {});
+        else if (rec) rec.q.push(m.c);
+        else (V.early[from] = V.early[from] || []).push(m.c);
+    }
+}
+function dropPeer(id) {
+    const rec = V.peers.get(id);
+    if (rec) { try { rec.pc.close(); } catch {} if (rec.audio) { rec.audio.srcObject = null; } V.peers.delete(id); }
+    const w = V.watch.get(id);
+    if (w && id !== (S.me && S.me.id)) { try { w.src.disconnect(); } catch {} V.watch.delete(id); }
+}
+
+/* speaking indicator: an analyser per stream, no output connection so nothing is played twice */
+function watchAudio(id, stream) {
+    try {
+        V.ctx = V.ctx || new (window.AudioContext || window.webkitAudioContext)();
+        if (V.ctx.state === 'suspended') V.ctx.resume().catch(() => {});
+        const old = V.watch.get(id); if (old) { try { old.src.disconnect(); } catch {} }
+        const src = V.ctx.createMediaStreamSource(stream), an = V.ctx.createAnalyser();
+        an.fftSize = 512; src.connect(an);
+        V.watch.set(id, { src, an, buf: new Uint8Array(an.fftSize) });
+    } catch {}
+}
+function tickSpeak() {
+    const now = new Set();
+    V.watch.forEach((w, id) => {
+        w.an.getByteTimeDomainData(w.buf);
+        let peak = 0; for (const v of w.buf) peak = Math.max(peak, Math.abs(v - 128));
+        if (peak > 10 && !(S.me && id === S.me.id && V.muted)) now.add(id);
+    });
+    if (now.size !== V.speak.size || [...now].some(i => !V.speak.has(i))) {
+        V.speak = now;
+        document.querySelectorAll('[data-vu]').forEach(e => e.classList.toggle('speaking', now.has(Number(e.dataset.vu))));
+    }
+}
+window.addEventListener('pagehide', () => {
+    if (V.on && S.token) { try { fetch('/api/auth', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${S.token}` }, body: JSON.stringify({ action: 'voice-leave' }) }); } catch {} }
+});
 
 /* ---------- start ---------- */
 setAuthMode(true);
