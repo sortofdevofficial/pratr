@@ -7,6 +7,7 @@ mongoose.set('bufferCommands', false);
 
 const db = globalThis.__pratrDb || (globalThis.__pratrDb = { conn: null, promise: null });
 const nowSeconds = () => Math.floor(Date.now() / 1000);
+const onlineCut = () => nowSeconds() - 45; // seen within the last 45s = online
 
 async function connectDB() {
   if (db.conn) return db.conn;
@@ -26,7 +27,8 @@ const userSchema = new mongoose.Schema({
   o: Number,
   i: Number,
   b: String,
-  av: String
+  av: String,
+  ls: Number
 }, { versionKey: false });
 const User = mongoose.models.User || mongoose.model('User', userSchema);
 
@@ -56,7 +58,9 @@ const msgSchema = new mongoose.Schema({
   ch: Number,
   m: String,
   t: { type: Number, default: nowSeconds },
-  d: { type: Number, default: 0 }
+  d: { type: Number, default: 0 },
+  dby: Number,
+  dt: Number
 }, { versionKey: false });
 const Msg = mongoose.models.Msg || mongoose.model('Msg', msgSchema, 'msgs');
 
@@ -66,6 +70,8 @@ const serverSchema = new mongoose.Schema({
   o: Number,
   m: [Number],
   ic: String,
+  ds: String,
+  pub: Boolean,
   i: { type: String, unique: true }
 }, { versionKey: false });
 const Server = mongoose.models.Server || mongoose.model('Server', serverSchema, 'servers');
@@ -74,7 +80,8 @@ const channelSchema = new mongoose.Schema({
   _id: Number,
   s: Number,
   n: String,
-  cat: { type: String, default: 'TEXT CHANNELS' }
+  cat: { type: String, default: 'TEXT CHANNELS' },
+  d: { type: Number, default: 0 }
 }, { versionKey: false });
 const Channel = mongoose.models.Channel || mongoose.model('Channel', channelSchema, 'channels');
 
@@ -85,6 +92,27 @@ const friendSchema = new mongoose.Schema({
   s: { type: String, default: 'a' }
 }, { versionKey: false });
 const Friend = mongoose.models.Friend || mongoose.model('Friend', friendSchema, 'friends');
+
+// Invites are never removed: expiry (x) is only checked when someone tries to use one. x = 0 means it never expires.
+const inviteSchema = new mongoose.Schema({
+  _id: String,
+  s: Number,
+  by: Number,
+  x: { type: Number, default: 0 },
+  t: { type: Number, default: nowSeconds },
+  u: { type: Number, default: 0 }
+}, { versionKey: false });
+const Invite = mongoose.models.Invite || mongoose.model('Invite', inviteSchema, 'invites');
+
+const CODE_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789'; // no look-alike characters
+const shortCode = () => Array.from({ length: 5 }, () => CODE_CHARS[crypto.randomInt(CODE_CHARS.length)]).join('');
+
+async function findInvite(code) {
+  const inv = await Invite.findById(code).lean();
+  if (inv) { const server = await Server.findById(inv.s); return server && { server, inv, expired: !!inv.x && inv.x < nowSeconds() }; }
+  const server = await Server.findOne({ i: code }); // legacy permanent invite
+  return server && { server, expired: false };
+}
 
 async function sendOtp(to, code) {
   if (!process.env.RESEND_API_KEY) { console.log(`[OTP] ${to}: ${code}`); return; }
@@ -105,7 +133,7 @@ const areFriends = async (x, y) => !!(await Friend.exists({ $or: [{ a: x, b: y }
 
 const isMember = async (serverId, userId) => !!(await Server.exists({ _id: Number(serverId), m: userId }));
 
-const srv = (s) => ({ id: s._id, name: s.n, owner: s.o, count: s.m.length, icon: s.ic || '' });
+const srv = (s) => ({ id: s._id, name: s.n, owner: s.o, count: s.m.length, icon: s.ic || '', desc: s.ds || '', pub: !!s.pub });
 const okImg = (u) => u === '' || (typeof u === 'string' && u.startsWith(`https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/`));
 
 module.exports = async function handler(req, res) {
@@ -115,7 +143,7 @@ module.exports = async function handler(req, res) {
     if (typeof body === 'string') { try { body = JSON.parse(body); } catch {} }
 
     await connectDB();
-    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio } = body;
+    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q } = body;
 
     if (action === 'register') {
       const key = String(email || '').trim().toLowerCase();
@@ -163,6 +191,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'me') {
+      await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
       const me = await User.findById(auth.userId).select('e n av b').lean();
       return res.status(200).json({ id: me._id, email: me.e, username: me.n, avatar: me.av || '', bio: me.b || '' });
     }
@@ -189,7 +218,7 @@ module.exports = async function handler(req, res) {
       const cleanName = String(name || '').trim().slice(0, 60);
       if (!cleanName) return res.status(400).json({ error: 'Server name required.' });
       if (!okImg(icon ?? '')) return res.status(400).json({ error: 'Invalid image.' });
-      const server = await Server.findOneAndUpdate({ _id: Number(id), o: auth.userId }, { n: cleanName, ic: icon || '' }, { new: true }).lean();
+      const server = await Server.findOneAndUpdate({ _id: Number(id), o: auth.userId }, { n: cleanName, ic: icon || '', ds: String(desc || '').trim().slice(0, 120), pub: !!pub }, { new: true }).lean();
       if (!server) return res.status(403).json({ error: 'Only the owner can edit the server.' });
       return res.status(200).json({ server: srv(server) });
     }
@@ -205,10 +234,59 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'server-join') {
-      const server = await Server.findOne({ i: String(code || '') });
-      if (!server) return res.status(404).json({ error: 'Invalid invite.' });
+      const found = await findInvite(String(code || ''));
+      if (!found) return res.status(404).json({ error: 'Invalid invite.' });
+      if (found.expired) return res.status(400).json({ error: 'This invite has expired.' });
+      const { server, inv } = found;
+      if (!server.m.includes(auth.userId)) {
+        server.m.push(auth.userId); await server.save();
+        if (inv) await Invite.updateOne({ _id: inv._id }, { $inc: { u: 1 } });
+      }
+      return res.status(200).json({ server: srv(server) });
+    }
+
+    if (action === 'invite-create') {
+      const server = await Server.findOne({ _id: Number(id), m: auth.userId }).lean();
+      if (!server) return res.status(403).json({ error: 'You are not a member of this server.' });
+      const secs = Math.max(0, Math.min(Number(ttl) || 0, 31536000));
+      const x = secs ? nowSeconds() + secs : 0;
+      for (let tries = 0; tries < 5; tries++) {
+        const newCode = shortCode();
+        try { await Invite.create({ _id: newCode, s: server._id, by: auth.userId, x }); return res.status(200).json({ code: newCode, expires: x }); }
+        catch (e) { if (e.code !== 11000) throw e; } // code already taken, try another
+      }
+      return res.status(500).json({ error: 'Could not create invite.' });
+    }
+
+    if (action === 'invite-info') {
+      const found = await findInvite(String(code || ''));
+      if (!found) return res.status(404).json({ error: 'Invalid invite.' });
+      const online = await User.countDocuments({ _id: { $in: found.server.m }, ls: { $gt: onlineCut() } });
+      return res.status(200).json({ ...srv(found.server), online, expired: found.expired, joined: found.server.m.includes(auth.userId) });
+    }
+
+    if (action === 'discover') {
+      const term = String(q || '').replace(/[^a-zA-Z0-9 ]/g, '').trim().slice(0, 40);
+      const list = await Server.find({ pub: true, ...(term ? { n: new RegExp(term, 'i') } : {}) }).sort({ _id: -1 }).limit(60).lean();
+      list.sort((a, b) => b.m.length - a.m.length);
+      return res.status(200).json({ servers: list.map(s => ({ ...srv(s), joined: s.m.includes(auth.userId) })) });
+    }
+
+    if (action === 'server-join-public') {
+      const server = await Server.findOne({ _id: Number(id), pub: true });
+      if (!server) return res.status(404).json({ error: 'This server is not listed.' });
       if (!server.m.includes(auth.userId)) { server.m.push(auth.userId); await server.save(); }
       return res.status(200).json({ server: srv(server) });
+    }
+
+    // Soft delete: the message stays in the database, it is only hidden (d: 1).
+    if (action === 'message-delete') {
+      const msg = await Msg.findById(Number(id)).lean();
+      if (!msg || msg.d === 1) return res.status(404).json({ error: 'Message not found.' });
+      const isServerOwner = msg.s ? !!(await Server.exists({ _id: msg.s, o: auth.userId })) : false;
+      if (msg.a !== auth.userId && !isServerOwner) return res.status(403).json({ error: "You can't delete this message." });
+      await Msg.updateOne({ _id: msg._id }, { d: 1, dby: auth.userId, dt: nowSeconds() });
+      return res.status(200).json({ ok: true });
     }
 
     if (action === 'friends') {
@@ -218,6 +296,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'servers') {
+      await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() }); // polled every few seconds, doubles as presence
       const servers = await Server.find({ m: auth.userId }).lean();
       return res.status(200).json({ servers: servers.map(srv) });
     }
@@ -233,7 +312,7 @@ module.exports = async function handler(req, res) {
 
     if (action === 'channels') {
       if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
-      const chans = await Channel.find({ s: Number(id) }).sort({ _id: 1 }).lean();
+      const chans = await Channel.find({ s: Number(id), d: { $ne: 1 } }).sort({ _id: 1 }).lean();
       return res.status(200).json({ channels: chans.map(c => ({ id: c._id, name: c.n, category: c.cat })) });
     }
 
@@ -254,17 +333,17 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'members') {
+      await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
       const server = await Server.findOne({ _id: Number(id), m: auth.userId }).lean();
       if (!server) return res.status(403).json({ error: 'Not a member.' });
-      const users = await User.find({ _id: { $in: server.m } }).select('n av b').lean();
-      return res.status(200).json({ owner: server.o, members: users.map(u => ({ id: u._id, username: u.n, avatar: u.av, bio: u.b })) });
+      const users = await User.find({ _id: { $in: server.m } }).select('n av b ls').lean();
+      return res.status(200).json({ owner: server.o, members: users.map(u => ({ id: u._id, username: u.n, avatar: u.av, bio: u.b, online: (u.ls || 0) > onlineCut() })) });
     }
 
     if (action === 'channel-delete') {
       const ch = await Channel.findById(Number(channelId)).lean();
       if (!ch || !(await Server.exists({ _id: ch.s, o: auth.userId }))) return res.status(403).json({ error: 'Only the owner can delete channels.' });
-      await Channel.deleteOne({ _id: ch._id });
-      await Msg.deleteMany({ s: ch.s, ch: ch._id });
+      await Channel.updateOne({ _id: ch._id }, { d: 1 }); // hidden, messages and channel stay in the database
       return res.status(200).json({ ok: true });
     }
 
@@ -281,7 +360,7 @@ module.exports = async function handler(req, res) {
       let match;
       if (isServer) {
         if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
-        if (!(await Channel.exists({ _id: Number(channelId), s: Number(id) }))) return res.status(404).json({ error: 'Channel not found.' });
+        if (!(await Channel.exists({ _id: Number(channelId), s: Number(id), d: { $ne: 1 } }))) return res.status(404).json({ error: 'Channel not found.' });
         match = { s: Number(id), ch: Number(channelId) };
       } else {
         if (!(await areFriends(auth.userId, Number(id)))) return res.status(403).json({ error: 'You can only message friends.' });
@@ -301,7 +380,7 @@ module.exports = async function handler(req, res) {
       let target;
       if (kind === 'server') {
         if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
-        if (!(await Channel.exists({ _id: Number(channelId), s: Number(id) }))) return res.status(400).json({ error: 'This server has no such text channel.' });
+        if (!(await Channel.exists({ _id: Number(channelId), s: Number(id), d: { $ne: 1 } }))) return res.status(400).json({ error: 'This server has no such text channel.' });
         target = { s: Number(id), ch: Number(channelId) };
       } else {
         if (!(await areFriends(auth.userId, Number(id)))) return res.status(403).json({ error: 'You can only message friends.' });

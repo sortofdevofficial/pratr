@@ -31,8 +31,8 @@ button { cursor: pointer; border: 0; background: none; }
 .icon-btn.accent { color: var(--coral); background: rgba(255, 90, 78, .12); } .icon-btn.accent:hover { background: var(--coral); color: #fff; }
 .field { display: block; margin: 0 0 14px; }
 .field > span { display: block; font-size: 12px; font-weight: 600; color: var(--mut); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
-input, textarea { background: var(--bg1); border: 1px solid #25375c; border-radius: 10px; padding: 11px 13px; width: 100%; outline: none; transition: .15s; }
-input:focus, textarea:focus { border-color: var(--coral); box-shadow: 0 0 0 3px rgba(255, 90, 78, .18); }
+input, textarea, select { background: var(--bg1); border: 1px solid #25375c; border-radius: 10px; padding: 11px 13px; width: 100%; outline: none; transition: .15s; }
+input:focus, textarea:focus, select:focus { border-color: var(--coral); box-shadow: 0 0 0 3px rgba(255, 90, 78, .18); }
 .hint { color: var(--mut); font-size: 13px; margin: 0 0 14px; }
 .msg-err { color: #ff8a80; font-size: 13px; min-height: 18px; margin: 8px 0 0; text-align: center; }
 .inline-form { display: flex; gap: 10px; } .inline-form .btn { white-space: nowrap; }
@@ -202,6 +202,32 @@ textarea { resize: none; display: block; }
 .emoji-pop h5 { margin: 6px 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
 .emoji-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
 .emoji-grid button { font-size: 22px; line-height: 1; padding: 5px 0; border-radius: 8px; transition: .1s; } .emoji-grid button:hover { background: var(--bg4); transform: scale(1.15); }
+
+.ava.xl { width: 92px; height: 92px; font-size: 36px; border: 5px solid var(--bg2); }
+.disc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.disc-grid .empty-note { grid-column: 1 / -1; color: var(--mut); padding: 14px 4px; }
+.disc-card { display: flex; flex-direction: column; background: var(--bg2); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; transition: .15s; }
+.disc-card:hover { border-color: #34496f; transform: translateY(-2px); }
+.disc-top, .dm-banner { height: 64px; background: linear-gradient(135deg, #22365e, var(--bg4)); }
+.disc-card .ava.xl { width: 64px; height: 64px; font-size: 24px; margin: -32px 0 0 16px; }
+.disc-body { display: flex; flex-direction: column; gap: 4px; padding: 10px 16px 16px; flex: 1; }
+.disc-body p { margin: 0; color: var(--mut); font-size: 13px; flex: 1; } .disc-body small { color: var(--dim); } .disc-body .btn { margin-top: 10px; }
+.embed { display: flex; align-items: center; gap: 12px; margin: 6px 0 2px; padding: 12px; max-width: 380px; background: var(--bg2); border: 1px solid #25375c; border-left: 3px solid var(--coral); border-radius: 12px; }
+.embed .meta { flex: 1; min-width: 0; display: flex; flex-direction: column; } .embed small { color: var(--mut); } .embed .btn { padding: 7px 14px; font-size: 13px; }
+.embed.dead { border-left-color: var(--dim); color: var(--mut); }
+.dmcard { display: none; width: 280px; flex: none; background: var(--bg2); border-left: 1px solid var(--line); overflow-y: auto; }
+.chat-body.dm-on .dmcard { display: block; }
+.dmcard .ava.xl { margin: -46px 0 0 18px; }
+.dm-body { padding: 10px 18px 18px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; } .dm-body strong { font-size: 20px; }
+.dm-about { width: 100%; margin-top: 8px; padding: 12px; background: var(--bg1); border: 1px solid var(--line); border-radius: 12px; }
+.dm-about h5 { margin: 0 0 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); } .dm-about p { margin: 0; white-space: pre-wrap; word-break: break-word; color: #e2dccf; }
+@media (max-width: 860px) { .dmcard { position: absolute; right: 0; top: 0; bottom: 0; z-index: 10; box-shadow: -10px 0 30px rgba(0, 0, 0, .5); } }
+
+.mem-sec { padding: 14px 8px 4px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+.mem .ava .dot { border-color: var(--bg2); } .dot.off { background: var(--dim); }
+.mem.off { opacity: .55; } .mem.off:hover { opacity: .9; }
+.stat { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
+.pdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bone); } .pdot.off { background: transparent; box-shadow: inset 0 0 0 1.5px var(--dim); margin-left: 6px; }
 
 /* ---------- responsive ---------- */
 @media (max-width: 860px) {

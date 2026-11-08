@@ -48,6 +48,7 @@
       <div class="rail-sep"></div>
       <div class="rail-list" id="rail-servers"></div>
       <button class="rail-btn action" id="server-create" title="Create a server"><svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button class="rail-btn action" id="rail-discover" title="Discover servers"><svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="10"/><path d="m16.2 7.8-2.1 6.3-6.3 2.1 2.1-6.3z"/></svg></button>
       <button class="rail-btn action" id="server-join-btn" title="Join a server"><svg viewBox="0 0 24 24" class="ic"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></button>
     </nav>
 
@@ -107,6 +108,19 @@
       </div>
     </section>
 
+    <!-- Discover -->
+    <section class="view hidden" id="view-discover">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" data-menu aria-label="Menu"><svg viewBox="0 0 24 24" class="ic"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+        <svg viewBox="0 0 24 24" class="ic muted"><circle cx="12" cy="12" r="10"/><path d="m16.2 7.8-2.1 6.3-6.3 2.1 2.1-6.3z"/></svg>
+        <h1>Discover</h1>
+      </header>
+      <div class="scroll"><div class="home-wrap">
+        <div class="panel"><h3>Find a community</h3><p class="hint">Public servers anyone can join.</p><input id="disc-q" placeholder="Search servers" autocomplete="off"></div>
+        <div class="disc-grid" id="disc-grid"></div>
+      </div></div>
+    </section>
+
     <!-- Chat -->
     <section class="view hidden" id="view-chat">
       <header class="topbar">
@@ -135,6 +149,7 @@
           <h4>Members — <span id="members-count">0</span></h4>
           <div id="members-list"></div>
         </aside>
+        <aside class="dmcard" id="dm-card"></aside>
       </div>
     </section>
   </main>
@@ -184,8 +199,10 @@
 <div class="modal hidden" id="modal-invite" role="dialog" aria-modal="true">
   <div class="modal-card">
     <button class="modal-x" data-close aria-label="Close">×</button>
-    <h2>Invite people</h2><p class="hint">Anyone with this link can join your server.</p>
-    <div class="inline-form"><input id="invite-link" readonly><button class="btn primary" id="invite-copy" type="button">Copy</button></div>
+    <h2>Invite people</h2><p class="hint">Pick how long the link works. Expired links stop working but are kept on record.</p>
+    <label class="field"><span>Expire after</span><select id="invite-ttl"><option value="1800">30 minutes</option><option value="3600">1 hour</option><option value="21600">6 hours</option><option value="43200">12 hours</option><option value="86400">1 day</option><option value="604800" selected>7 days</option><option value="0">Never</option></select></label>
+    <button class="btn primary" id="invite-gen" type="button">Generate link</button>
+    <div class="inline-form hidden" id="invite-out" style="margin-top:12px"><input id="invite-link" readonly><button class="btn primary" id="invite-copy" type="button">Copy</button></div>
   </div>
 </div>
 
@@ -210,6 +227,8 @@
     <div class="up"><button type="button" class="ava lg" id="sv-ava" title="Change icon"></button><input type="file" id="sv-file" accept="image/*" hidden>
       <div class="up-btns"><button type="button" class="btn ghost" id="sv-pick">Upload icon</button><button type="button" class="linkbtn" id="sv-clear">Remove</button></div></div>
     <form id="sv-form"><label class="field"><span>Server name</span><input id="sv-name" maxlength="60" autocomplete="off" required></label>
+    <label class="field"><span>Description</span><textarea id="sv-desc" rows="2" maxlength="120" placeholder="What is your server about?"></textarea></label>
+    <label class="dev-row"><input type="checkbox" id="sv-pub"><span><strong>List in Discover</strong><small>Anyone can find and join this server from the Discover page.</small></span></label>
     <p class="msg-err" id="sv-msg"></p>
     <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>
   </div>

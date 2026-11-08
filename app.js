@@ -184,6 +184,7 @@ async function loadFriends() {
     const out = await post({ action: 'friends' });
     if (!out.res.ok) return;
     S.friends = out.data.friends || [];
+    if (S.dm) { S.dm = S.friends.find(x => x.id === S.dm.id) || S.dm; if (S.view === 'dm') renderDmCard(); }
     renderSide();
     if (S.view === 'home') renderFriends();
 }
@@ -226,6 +227,35 @@ document.querySelectorAll('[data-menu]').forEach(b => b.onclick = () => document
 $('scrim').onclick = closeNav;
 $('rail-home').onclick = () => { goHome(); closeNav(); };
 $('nav-friends').onclick = () => { goHome(); closeNav(); };
+$('rail-discover').onclick = () => {
+    S.view = 'discover'; S.server = null; S.dm = null; S.channels = []; S.channelId = null; S.members = []; S.sig = '';
+    renderAll(); loadDiscover(); closeNav();
+};
+
+/* ---------- discover ---------- */
+let discT;
+async function loadDiscover() {
+    const out = await post({ action: 'discover', q: $('disc-q').value });
+    if (!out.res.ok || S.view !== 'discover') return;
+    const grid = $('disc-grid'), list = out.data.servers || [];
+    grid.textContent = '';
+    if (!list.length) grid.append(h('div', 'empty-note', 'No public servers found. Owners can list theirs in Server settings.'));
+    list.forEach(s => {
+        const c = h('div', 'disc-card'), b = h('div', 'disc-body'), btn = h('button', 'btn ' + (s.joined ? 'ghost' : 'primary'), s.joined ? 'Open' : 'Join');
+        btn.onclick = async () => {
+            if (!s.joined) {
+                const j = await post({ action: 'server-join-public', id: s.id });
+                if (!j.res.ok) return toast(j.data.error || 'Could not join.', true);
+                await loadServers(); toast(`Joined ${s.name}`);
+            }
+            openServer(s.id);
+        };
+        b.append(h('strong', '', s.name), h('p', '', s.desc || 'No description yet.'), h('small', '', `${s.count} member${s.count === 1 ? '' : 's'}`), btn);
+        c.append(h('div', 'disc-top'), avatar(s.name, 'xl', s.icon), b);
+        grid.append(c);
+    });
+}
+$('disc-q').oninput = () => { clearTimeout(discT); discT = setTimeout(loadDiscover, 250); };
 
 function goHome() {
     S.view = 'home'; S.server = null; S.dm = null; S.channels = []; S.channelId = null; S.members = []; S.sig = '';
@@ -263,7 +293,8 @@ function selectChannel(id) {
 function renderAll() { renderRail(); renderSide(); renderMain(); renderMembers(); }
 
 function renderRail() {
-    $('rail-home').classList.toggle('active', S.view !== 'server');
+    $('rail-home').classList.toggle('active', S.view === 'home' || S.view === 'dm');
+    $('rail-discover').classList.toggle('active', S.view === 'discover');
     const box = $('rail-servers');
     box.textContent = '';
     S.servers.forEach(s => {
@@ -278,7 +309,7 @@ function renderRail() {
 
 function renderSide() {
     const server = S.view === 'server' && S.server;
-    $('side-title').textContent = server ? S.server.name : 'Home';
+    $('side-title').textContent = server ? S.server.name : S.view === 'discover' ? 'Discover' : 'Home';
     $('server-menu-btn').classList.toggle('hidden', !server);
     $('home-list').classList.toggle('hidden', !!server);
     $('server-list').classList.toggle('hidden', !server);
@@ -347,10 +378,12 @@ function renderFriends() {
 }
 
 function renderMain() {
-    const home = S.view === 'home';
+    const home = S.view === 'home', disc = S.view === 'discover';
     $('view-home').classList.toggle('hidden', !home);
-    $('view-chat').classList.toggle('hidden', home);
+    $('view-discover').classList.toggle('hidden', !disc);
+    $('view-chat').classList.toggle('hidden', home || disc);
     if (home) { renderFriends(); return; }
+    if (disc) return;
     const isServer = S.view === 'server';
     const ch = isServer ? curChannel() : null;
     const icon = $('chat-icon');
@@ -366,9 +399,12 @@ function renderMain() {
         $('chat-sub').textContent = '';
     }
     $('invite-btn').classList.toggle('hidden', !isServer);
-    $('members-btn').classList.toggle('hidden', !isServer);
+    $('members-btn').classList.remove('hidden');
+    $('members-btn').title = isServer ? 'Members' : 'Profile';
     $('members-btn').classList.toggle('on', S.membersOn);
     $('chat-body').classList.toggle('members-on', isServer && S.membersOn);
+    $('chat-body').classList.toggle('dm-on', !isServer && S.membersOn);
+    if (!isServer) renderDmCard();
 
     const none = isServer && S.chLoaded && !ch;
     $('messages').classList.toggle('hidden', none);
@@ -393,16 +429,32 @@ function renderEmpty() {
     }
 }
 
+function renderDmCard() {
+    const u = S.dm, card = $('dm-card');
+    if (!u) return;
+    const n = u.username || u.email, body = h('div', 'dm-body'), about = h('div', 'dm-about');
+    about.append(h('h5', '', 'About me'), h('p', '', u.bio || 'No bio yet.'));
+    body.append(h('strong', '', n), h('span', 'badge', 'FRIEND'), about);
+    card.textContent = '';
+    card.append(h('div', 'dm-banner'), avatar(n, 'xl', u.avatar), body);
+}
+
 function renderMembers() {
     $('members-count').textContent = S.members.length;
     const box = $('members-list');
     box.textContent = '';
-    S.members.forEach(m => {
-        const r = h('div', 'mem');
-        r._ctx = userItems(m); r.title = m.bio || '';
-        r.append(avatar(m.username, 'sm', m.avatar), h('span', '', m.username || 'Member'));
-        if (S.server && m.id === S.server.owner) r.append(h('em', 'badge', 'OWNER'));
-        box.append(r);
+    const online = S.members.filter(m => m.online || (S.me && m.id === S.me.id)), offline = S.members.filter(m => !online.includes(m));
+    [['Online', online], ['Offline', offline]].forEach(([title, list]) => {
+        if (!list.length) return;
+        box.append(h('div', 'mem-sec', `${title} — ${list.length}`));
+        list.forEach(m => {
+            const r = h('div', 'mem' + (title === 'Offline' ? ' off' : '')), a = avatar(m.username, 'sm', m.avatar);
+            a.append(h('i', 'dot' + (title === 'Offline' ? ' off' : '')));
+            r._ctx = userItems(m); r.title = m.bio || '';
+            r.append(a, h('span', '', m.username || 'Member'));
+            if (S.server && m.id === S.server.owner) r.append(h('em', 'badge', 'OWNER'));
+            box.append(r);
+        });
     });
 }
 
@@ -444,7 +496,8 @@ function renderMessages(list, force) {
             body.append(head);
         }
         body.append(h('div', 'text', m.text));
-        row._ctx = [...userItems(m.author), ['Copy message', () => copy(m.text)], ...idItem('message', m.id)];
+        [...new Set([...m.text.matchAll(/#invite=([a-z0-9]{5,48})/gi)].map(x => x[1].toLowerCase()))].forEach(code => body.append(inviteEmbed(code)));
+        row._ctx = [...userItems(m.author), ['Copy message', () => copy(m.text)], ...idItem('message', m.id), ...(m.mine || isOwner() ? ['-', ['Delete message', () => delMsg(m), true]] : [])];
         row.append(gutter, body);
         box.append(row);
         prev = m;
@@ -507,14 +560,40 @@ $('server-create-form').onsubmit = async (e) => {
     toast('Server created!');
 };
 
-function parseInvite(v) { const m = String(v).match(/[a-f0-9]{48}/i); return m ? m[0].toLowerCase() : ''; }
+function parseInvite(v) { const s = String(v).trim(), m = s.match(/invite=([a-z0-9]{5,48})/i) || s.match(/^([a-z0-9]{5,48})$/i); return m ? m[1].toLowerCase() : ''; }
 async function joinWithCode(code) {
     const out = await post({ action: 'server-join', code });
-    if (!out.res.ok) return toast(out.data.error || 'Invalid invite.', true);
+    if (!out.res.ok) { toast(out.data.error || 'Invalid invite.', true); return false; }
     closeModals();
     await loadServers();
     openServer(out.data.server.id);
     toast(`Joined ${out.data.server.name}`);
+    return true;
+}
+
+/* invite links posted in chat render as a server card */
+const INV = {};
+function inviteEmbed(code) {
+    const box = h('div', 'embed');
+    const paint = (i) => {
+        box.textContent = '';
+        if (i.error || i.expired) { box.className = 'embed dead'; box.textContent = i.error ? 'This invite is invalid.' : `The invite to ${i.name} has expired.`; return; }
+        const meta = h('div', 'meta'), btn = h('button', 'btn ' + (i.joined ? 'ghost' : 'primary'), i.joined ? 'Open' : 'Join');
+        const on = i.online || 0, stat = h('small', 'stat');
+        stat.append(h('i', 'pdot'), `${on} online`, h('i', 'pdot off'), `${i.count - on} offline`);
+        meta.append(h('strong', '', i.name), stat);
+        btn.onclick = async () => { if (i.joined) return openServer(i.id); if (await joinWithCode(code)) i.joined = true; };
+        box.append(avatar(i.name, 'sm', i.icon), meta, btn);
+    };
+    if (INV[code] && Date.now() - INV[code].t < 30000) paint(INV[code]);
+    else { box.textContent = 'Loading invite…'; post({ action: 'invite-info', code }).then(o => { INV[code] = { ...(o.res.ok ? o.data : { error: true }), t: Date.now() }; paint(INV[code]); }); }
+    return box;
+}
+async function delMsg(m) {
+    if (!confirm('Delete this message?')) return;
+    const out = await post({ action: 'message-delete', id: m.id });
+    if (!out.res.ok) return toast(out.data.error || 'Could not delete.', true);
+    loadMessages(true);
 }
 $('server-join-form').onsubmit = (e) => {
     e.preventDefault();
@@ -551,21 +630,25 @@ $('channel-create-form').onsubmit = async (e) => {
     toast('Channel created.');
 };
 async function deleteChannel(c) {
-    if (!confirm(`Delete #${c.name}? All its messages will be removed.`)) return;
+    if (!confirm(`Delete #${c.name}? It will be hidden; its messages stay on record.`)) return;
     const out = await post({ action: 'channel-delete', channelId: c.id });
     if (!out.res.ok) return toast(out.data.error || 'Could not delete channel.', true);
     await loadChannels(c.id === S.channelId);
     S.sig = ''; renderAll(); loadMessages(true);
 }
 
-async function openInvite() {
+function openInvite() {
     if (!S.server) return;
-    const out = await post({ action: 'server-invite', id: S.server.id });
+    $('invite-out').classList.add('hidden');
+    openModal('modal-invite');
+}
+$('invite-gen').onclick = async () => {
+    const out = await post({ action: 'invite-create', id: S.server.id, ttl: Number($('invite-ttl').value) });
     if (!out.res.ok) return toast(out.data.error || 'Could not create invite.', true);
     $('invite-link').value = `${location.origin}/#invite=${out.data.code}`;
-    openModal('modal-invite');
+    $('invite-out').classList.remove('hidden');
     $('invite-link').select();
-}
+};
 $('invite-btn').onclick = openInvite;
 $('invite-copy').onclick = async () => {
     try { await navigator.clipboard.writeText($('invite-link').value); toast('Invite link copied!'); }
@@ -668,13 +751,13 @@ function openProfile() {
 function openServerSettings() {
     if (!isOwner()) return;
     $('sv-msg').textContent = '';
-    $('sv-name').value = S.server.name;
+    $('sv-name').value = S.server.name; $('sv-desc').value = S.server.desc || ''; $('sv-pub').checked = !!S.server.pub;
     pend.sv = S.server.icon || ''; paint('sv', S.server.name);
     openModal('modal-sv');
 }
 $('sv-form').onsubmit = async (e) => {
     e.preventDefault();
-    const out = await post({ action: 'server-update', id: S.server.id, name: $('sv-name').value, icon: pend.sv });
+    const out = await post({ action: 'server-update', id: S.server.id, name: $('sv-name').value, icon: pend.sv, desc: $('sv-desc').value, pub: $('sv-pub').checked });
     if (!out.res.ok) { $('sv-msg').textContent = out.data.error || 'Could not save.'; return; }
     await loadServers(); closeModals(); renderAll(); toast('Server updated.');
 };
@@ -708,15 +791,15 @@ document.addEventListener('contextmenu', (e) => {
     items.forEach(it => {
         if (it === '-') return ctx.append(document.createElement('hr'));
         const b = h('button', it[2] ? 'danger' : '', it[0]);
-        b.onclick = it[1];
+        b.onclick = () => { ctx.classList.add('hidden'); it[1](); };
         ctx.append(b);
     });
     ctx.classList.remove('hidden');
     ctx.style.left = Math.min(e.clientX, innerWidth - 228) + 'px';
     ctx.style.top = Math.min(e.clientY, innerHeight - ctx.offsetHeight - 8) + 'px';
 });
-document.addEventListener('click', () => ctx.classList.add('hidden'));
-['scroll', 'resize', 'blur'].forEach(ev => addEventListener(ev, () => ctx.classList.add('hidden'), true));
+document.addEventListener('pointerdown', (e) => { if (!e.target.closest('#ctx-menu')) ctx.classList.add('hidden'); });
+addEventListener('resize', () => ctx.classList.add('hidden'));
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') ctx.classList.add('hidden');
     const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
