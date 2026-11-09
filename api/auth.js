@@ -37,22 +37,26 @@ const DUMMY_HASH = bcrypt.hashSync('pratr-dummy', 10); // compared when the emai
 // Every collection below carries a small "v" field set to CURRENT_SCHEMA_VERSION on write.
 // A future migration script can find old documents with `{ v: { $lt: N } }` (or missing) and upgrade them in place,
 // so the app never has to assume every row was written by today's code.
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 const Meta = mongoose.models.Meta || mongoose.model('Meta', new mongoose.Schema({ _id: String, v: Number, at: Number }, { versionKey: false }), 'meta');
+let schemaStamped = false;
 async function ensureSchemaVersion() {
-  await Meta.updateOne({ _id: 'schema' }, { $setOnInsert: { v: CURRENT_SCHEMA_VERSION, at: nowSeconds() } }, { upsert: true });
+  if (schemaStamped) return;
+  await Meta.updateOne({ _id: 'schema' }, { $set: { v: CURRENT_SCHEMA_VERSION }, $setOnInsert: { at: nowSeconds() } }, { upsert: true });
+  schemaStamped = true;
 }
 const withV = (doc) => ({ ...doc, v: CURRENT_SCHEMA_VERSION });
 
 async function connectDB() {
-  await ensureSchemaVersion().catch(() => {});
-  if (db.conn) return db.conn;
+  if (db.conn) { ensureSchemaVersion().catch(() => {}); return db.conn; }
   if (!db.promise) {
-    db.promise = mongoose.connect(process.env.MONGO_URI, { serverSelectionTimeoutMS: 8000, maxPoolSize: 1 })
+    db.promise = mongoose.connect(process.env.MONGO_URI, { serverSelectionTimeoutMS: 8000, maxPoolSize: 5 })
       .then(m => { db.conn = m; return m; })
       .catch(err => { db.promise = null; throw err; });
   }
-  return db.promise;
+  const conn = await db.promise;
+  await ensureSchemaVersion().catch(() => {});
+  return conn;
 }
 
 const userSchema = new mongoose.Schema({
@@ -137,7 +141,13 @@ const Channel = mongoose.models.Channel || mongoose.model('Channel', channelSche
 
 // Voice presence: one row per connected user, refreshed ~1/s by the client. Rows older than VOICE_LIVE seconds are ignored.
 const voiceSchema = new mongoose.Schema({ _id: Number, s: Number, ch: Number, ts: Number, j: Number, mu: Boolean, df: Boolean }, { versionKey: false });
+voiceSchema.index({ s: 1, ts: 1 });
+voiceSchema.index({ s: 1, ch: 1, ts: 1 });
 const Voice = mongoose.models.Voice || mongoose.model('Voice', voiceSchema, 'voice');
+// Organized voice totals: one row per user per server. Updated when a session ends; logs keep the session-by-session history.
+const vstatSchema = new mongoose.Schema({ _id: String, s: Number, u: Number, t: Number, n: Number, last: Number }, { versionKey: false });
+vstatSchema.index({ s: 1, t: -1 });
+const VStat = mongoose.models.VStat || mongoose.model('VStat', vstatSchema, 'vstats');
 // WebRTC signalling messages (offer/answer/ICE), consumed and deleted by the receiver's next poll.
 const signalSchema = new mongoose.Schema({ to: Number, from: Number, d: String, x: Number }, { versionKey: false });
 signalSchema.index({ to: 1 });
@@ -161,14 +171,22 @@ async function endVoice(v, endTs) {
   const secs = Math.max(0, Math.round(((endTs || nowSeconds()) * 1000 - (v.j || v.ts * 1000)) / 1000));
   const ch = await Channel.findById(v.ch).select('n').lean();
   await lg(v.s, 'voice_leave', v._id, { ch: v.ch, cn: ch ? ch.n : '', d: secs });
-  await User.updateOne({ _id: v._id }, { $inc: { vt: secs } });
+  await Promise.all([
+    User.updateOne({ _id: v._id }, { $inc: { vt: secs } }),
+    VStat.updateOne({ _id: `${v.s}:${v._id}` }, { $inc: { t: secs, n: 1 }, $max: { last: nowSeconds() }, $set: { s: v.s, u: v._id } }, { upsert: true })
+  ]);
+}
+// A tab that died without saying goodbye: close its session the next time that user does anything.
+async function reapMyVoice(uid) {
+  const v = await Voice.findOneAndDelete({ _id: uid, ts: { $lte: vLive() } });
+  if (v) await endVoice(v, v.ts);
 }
 async function reapVoice(sid) {
   const stale = await Voice.find({ s: sid, ts: { $lte: vLive() } }).lean();
   for (const r of stale) { const v = await Voice.findOneAndDelete({ _id: r._id, ts: { $lte: vLive() } }); if (v) await endVoice(v, v.ts); }
 }
 // Read state: one row per user per channel/DM, so unread dots and ping counts survive restarts and work across devices.
-const readSchema = new mongoose.Schema({ _id: String, u: Number, t: Number, mid: Number, v: Number }, { versionKey: false });
+const readSchema = new mongoose.Schema({ _id: String, u: Number, mid: Number, v: Number }, { versionKey: false });
 readSchema.index({ u: 1 });
 const Read = mongoose.models.Read || mongoose.model('Read', readSchema, 'reads');
 const readKey = (u, kind, id, chId) => kind === 'server' ? `${u}:s${id}:${chId}` : `${u}:d${id}`;
@@ -271,6 +289,16 @@ async function nextId(Model) {
   const last = await Model.findOne().sort({ _id: -1 }).select('_id').lean();
   return (last ? last._id : 0) + 1;
 }
+// max+1 ids can collide when two requests create at once; retry with a fresh id instead of failing.
+async function createWithId(Model, doc) {
+  for (let tries = 0; tries < 5; tries++) {
+    try { return await Model.create({ ...doc, _id: await nextId(Model) }); }
+    catch (e) {
+      const kp = e.keyPattern || (e.errorResponse && e.errorResponse.keyPattern);
+      if (e.code !== 11000 || !(kp && kp._id) || tries === 4) throw e;
+    }
+  }
+}
 
 const isAdmin = (e) => String(process.env.ADMIN_EMAILS || 'sortofdevofficial@gmail.com').toLowerCase().split(',').map(s => s.trim()).filter(Boolean).includes(String(e || '').toLowerCase());
 const areFriends = async (x, y) => !!(await Friend.exists({ $or: [{ a: x, b: y }, { a: y, b: x }], s: 'a' }));
@@ -294,7 +322,7 @@ module.exports = async function handler(req, res) {
     if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16) return res.status(500).json({ error: 'Server is not configured.' });
     await connectDB();
     const tooMany = () => res.status(429).json({ error: 'Too many attempts. Please wait a bit and try again.' });
-    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q, status, ck, to, sig, mu, df, on, npw, lastId } = body;
+    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q, status, ck, to, sig, mu, df, on, npw, lastId, afterId } = body;
 
     if (action === 'register') {
       const key = String(email || '').trim().toLowerCase();
@@ -315,8 +343,8 @@ module.exports = async function handler(req, res) {
       if (!(await hit(`otp:${key}`, 6, 900)) || !(await hit(`otpi:${clientIp(req)}`, 30, 900))) return tooMany();
       const pending = await Pending.findById(key).lean();
       if (!pending || pending.x < nowSeconds() || !(await bcrypt.compare(String(otp || ''), pending.o))) return res.status(400).json({ error: 'Invalid code.' });
-      const userId = await nextId(User);
-      const user = await User.create({ _id: userId, e: key, p: pending.p, n: pending.un || `user${userId}` });
+      const user = await createWithId(User, { e: key, p: pending.p, n: pending.un || undefined });
+      if (!user.n) await User.updateOne({ _id: user._id }, { n: `user${user._id}` });
       await Pending.deleteOne({ _id: key });
       await lg(0, 'signup', user._id, { x: infoText(req) });
       await ensureSchemaVersion();
@@ -356,6 +384,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'me') {
+      await reapMyVoice(auth.userId);
       await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
       const me = await User.findById(auth.userId).select('e n av b ps pl').lean();
       return res.status(200).json({ id: me._id, email: me.e, username: me.n, avatar: me.av || '', bio: me.b || '', status: me.ps || 'online', plus: !!me.pl, admin: isAdmin(me.e) });
@@ -409,7 +438,7 @@ module.exports = async function handler(req, res) {
       const [x, y] = [auth.userId, other._id].sort((p, q2) => p - q2);
       await Friend.updateOne({ _id: `${x}:${y}` }, { $setOnInsert: { a: x, b: y, s: 'a' } }, { upsert: true });
       await lg(0, 'friend_add', auth.userId, { u: other._id });
-      return res.status(200).json({ friend: { id: other._id, username: other.n, email: other.e, avatar: other.av } });
+      return res.status(200).json({ friend: { id: other._id, username: other.n, avatar: other.av } });
     }
 
     if (action === 'server-join') {
@@ -475,11 +504,12 @@ module.exports = async function handler(req, res) {
 
     if (action === 'friends') {
       const docs = await Friend.find({ $or: [{ a: auth.userId }, { b: auth.userId }], s: 'a' }).lean();
-      const users = await User.find({ _id: { $in: docs.map(f => f.a === auth.userId ? f.b : f.a) } }).select('e n av b ls ps pl').lean();
-      return res.status(200).json({ friends: users.map(u => ({ id: u._id, email: u.e, username: u.n, avatar: u.av, bio: u.b, status: statusOf(u), plus: !!u.pl })) });
+      const users = await User.find({ _id: { $in: docs.map(f => f.a === auth.userId ? f.b : f.a) } }).select('n av b ls ps pl').lean();
+      return res.status(200).json({ friends: users.map(u => ({ id: u._id, username: u.n, avatar: u.av, bio: u.b, status: statusOf(u), plus: !!u.pl })) });
     }
 
     if (action === 'servers') {
+      await reapMyVoice(auth.userId);
       await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() }); // polled every few seconds, doubles as presence
       const servers = await Server.find({ m: auth.userId }).lean();
       return res.status(200).json({ servers: servers.map(srv) });
@@ -489,10 +519,9 @@ module.exports = async function handler(req, res) {
       if (!(await hit(`sv:${auth.userId}`, 10, 3600))) return tooMany();
       const cleanName = String(name || '').trim().slice(0, 60);
       if (!cleanName) return res.status(400).json({ error: 'Server name required.' });
-      const serverId = await nextId(Server);
-      const server = await Server.create({ _id: serverId, n: cleanName, o: auth.userId, m: [auth.userId], i: crypto.randomBytes(24).toString('hex') });
-      await Channel.create({ _id: await nextId(Channel), s: serverId, n: 'general', cat: 'TEXT CHANNELS' });
-      await lg(serverId, 'server_create', auth.userId, { x: cleanName });
+      const server = await createWithId(Server, { n: cleanName, o: auth.userId, m: [auth.userId], i: crypto.randomBytes(24).toString('hex') });
+      await createWithId(Channel, { s: server._id, n: 'general', cat: 'TEXT CHANNELS' });
+      await lg(server._id, 'server_create', auth.userId, { x: cleanName });
       return res.status(200).json({ server: srv(server) });
     }
 
@@ -505,12 +534,12 @@ module.exports = async function handler(req, res) {
     if (action === 'channel-create') {
       const serverId = Number(id);
       if (!(await Server.exists({ _id: serverId, o: auth.userId }))) return res.status(403).json({ error: 'Only owner can create channels.' });
-      const chId = await nextId(Channel);
       const chName = String(channelName || '').trim().toLowerCase().replace(/\s+/g, '-');
       if (!chName) return res.status(400).json({ error: 'Channel name required.' });
       const k = ck === 'v' ? 'v' : 't';
       const cat = String(category || '').trim().slice(0, 40) || (k === 'v' ? 'VOICE CHANNELS' : 'TEXT CHANNELS');
-      await Channel.create({ _id: chId, s: serverId, n: chName, cat, k });
+      const ch = await createWithId(Channel, { s: serverId, n: chName, cat, k });
+      const chId = ch._id;
       await lg(serverId, 'channel_create', auth.userId, { ch: chId, cn: chName, x: k === 'v' ? 'voice' : 'text' });
       return res.status(200).json({ channel: { id: chId, name: chName, category: cat, kind: k } });
     }
@@ -558,7 +587,8 @@ module.exports = async function handler(req, res) {
         if (!(await areFriends(auth.userId, Number(id)))) return res.status(403).json({ error: 'You can only message friends.' });
         match = { $or: [{ a: auth.userId, b: Number(id) }, { a: Number(id), b: auth.userId }] };
       }
-      const msgs = await Msg.find({ ...match, d: { $ne: 1 } }).sort({ _id: -1 }).limit(100).lean();
+      const after = Number(afterId) || 0;
+      const msgs = await Msg.find({ ...match, ...(after ? { _id: { $gt: after } } : {}), d: { $ne: 1 } }).sort({ _id: -1 }).limit(100).lean();
       const authors = await User.find({ _id: { $in: [...new Set(msgs.map(m => m.a))] } }).select('n av pl').lean();
       const people = Object.fromEntries(authors.map(u => [u._id, u]));
       return res.status(200).json({
@@ -567,66 +597,66 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'send') {
-      if (!(await hit(`msg:${auth.userId}`, 20, 10))) return res.status(429).json({ error: 'You are sending messages too fast.' });
-      const me = await User.findById(auth.userId).select('n av pl').lean();
+      const isServer = kind === 'server';
+      const [okRate, me, member, chanOk, friendOk] = await Promise.all([
+        hit(`msg:${auth.userId}`, 20, 10),
+        User.findById(auth.userId).select('n av pl').lean(),
+        isServer ? isMember(id, auth.userId) : true,
+        isServer ? Channel.exists({ _id: Number(channelId), s: Number(id), k: { $ne: 'v' }, d: { $ne: 1 } }) : true,
+        isServer ? true : areFriends(auth.userId, Number(id))
+      ]);
+      if (!okRate) return res.status(429).json({ error: 'You are sending messages too fast.' });
       const clean = String(text || '').trim().slice(0, me && me.pl ? 4000 : 2000);
       if (!clean) return res.status(400).json({ error: 'Empty message.' });
       let target;
-      if (kind === 'server') {
-        const [member, chanOk] = await Promise.all([
-          isMember(id, auth.userId),
-          Channel.exists({ _id: Number(channelId), s: Number(id), k: { $ne: 'v' }, d: { $ne: 1 } })
-        ]);
+      if (isServer) {
         if (!member) return res.status(403).json({ error: 'Not a member.' });
         if (!chanOk) return res.status(400).json({ error: 'This server has no such text channel.' });
         target = { s: Number(id), ch: Number(channelId) };
       } else {
-        if (!(await areFriends(auth.userId, Number(id)))) return res.status(403).json({ error: 'You can only message friends.' });
+        if (!friendOk) return res.status(403).json({ error: 'You can only message friends.' });
         target = { b: Number(id) };
       }
-      const [msg] = await Promise.all([Msg.create({ _id: await nextId(Msg), a: auth.userId, ...target, m: clean }), User.updateOne({ _id: auth.userId }, { $inc: { mc: 1 } })]);
+      const [msg] = await Promise.all([createWithId(Msg, { a: auth.userId, ...target, m: clean }), User.updateOne({ _id: auth.userId }, { $inc: { mc: 1 } })]);
       return res.status(200).json({ message: { id: msg._id, mine: true, text: msg.m, t: msg.t, rx: [], author: { id: auth.userId, username: me?.n || 'You', avatar: me?.av, plus: !!me?.pl } } });
     }
 
     // ---------- read state (seen/unseen) ----------
     if (action === 'mark-read') {
       const key = readKey(auth.userId, kind, Number(id), Number(channelId));
-      await Read.updateOne({ _id: key }, withV({ u: auth.userId, t: nowSeconds(), mid: Number(lastId) || 0 }), { upsert: true });
+      await Read.updateOne({ _id: key }, withV({ u: auth.userId, mid: Number(lastId) || 0 }), { upsert: true });
       return res.status(200).json({ ok: true });
     }
 
     if (action === 'unreads') {
       // Per server channel: unread (any new message) and pings (messages that actually mention you or @everyone/@here from the owner).
-      const servers = await Server.find({ m: auth.userId }).select('_id o').lean();
-      const chans = await Channel.find({ s: { $in: servers.map(s => s._id) }, k: 't', d: { $ne: 1 } }).select('_id s').lean();
-      const reads = await Read.find({ u: auth.userId }).lean();
+      // Batched: one query for all channels + one for all DMs, using the stored _id cursors (indexed), not timestamps.
+      const [servers, reads, me] = await Promise.all([
+        Server.find({ m: auth.userId }).select('_id o').lean(),
+        Read.find({ u: auth.userId }).lean(),
+        User.findById(auth.userId).select('n').lean()
+      ]);
       const rmap = Object.fromEntries(reads.map(r => [r._id, r]));
       const ownerOf = Object.fromEntries(servers.map(s => [s._id, s.o]));
+      const mine = ((me && me.n) || '').toLowerCase();
       const out = {};
-      for (const c of chans) {
-        const r = rmap[readKey(auth.userId, 'server', c.s, c._id)];
-        const since = r ? r.t : 0;
-        const msgs = await Msg.find({ s: c.s, ch: c._id, d: { $ne: 1 }, t: { $gt: since }, a: { $ne: auth.userId } }).select('m a').limit(50).lean();
-        if (!msgs.length) continue;
-        const me = await User.findById(auth.userId).select('n').lean();
-        const mine = (me.n || '').toLowerCase();
-        const pings = msgs.filter(m => {
+      const chans = await Channel.find({ s: { $in: servers.map(s => s._id) }, k: 't', d: { $ne: 1 } }).select('_id s').lean();
+      const cuts = chans.map(c => ({ c, since: (rmap[readKey(auth.userId, 'server', c.s, c._id)] || {}).mid || 0 }));
+      if (cuts.length) {
+        const fresh = await Msg.find({ $or: cuts.map(x => ({ s: x.c.s, ch: x.c._id, _id: { $gt: x.since } })), d: { $ne: 1 }, a: { $ne: auth.userId } }).select('m a s ch').limit(1000).lean();
+        for (const m of fresh) {
+          const o = out[m.ch] || (out[m.ch] = { unread: true, pings: 0 });
           const t = String(m.m || '').toLowerCase();
-          if (t.includes('@' + mine)) return true;
-          if (m.a === ownerOf[c.s] && (t.includes('@everyone') || t.includes('@here'))) return true;
-          return false;
-        }).length;
-        out[c._id] = { unread: true, pings };
+          if (t.includes('@' + mine) || (m.a === ownerOf[m.s] && (t.includes('@everyone') || t.includes('@here')))) o.pings++;
+        }
       }
-      const dmReads = reads.filter(r => r._id.startsWith(`${auth.userId}:d`));
       const friends = await Friend.find({ $or: [{ a: auth.userId }, { b: auth.userId }], s: 'a' }).lean();
       const dmOut = {};
-      for (const f of friends) {
-        const other = f.a === auth.userId ? f.b : f.a;
-        const r = rmap[readKey(auth.userId, 'dm', other)];
-        const since = r ? r.t : 0;
-        const n = await Msg.countDocuments({ a: other, b: auth.userId, d: { $ne: 1 }, t: { $gt: since } });
-        if (n) dmOut[other] = { unread: true, pings: n }; // a DM is inherently addressed to you, so every new DM counts as a ping
+      const others = friends.map(f => f.a === auth.userId ? f.b : f.a);
+      if (others.length) {
+        const dmCuts = others.map(o => ({ o, since: (rmap[readKey(auth.userId, 'dm', o)] || {}).mid || 0 }));
+        const dms = await Msg.find({ $or: dmCuts.map(x => ({ a: x.o, b: auth.userId, _id: { $gt: x.since } })), d: { $ne: 1 } }).select('a').limit(1000).lean();
+        for (const m of dms) { const o = dmOut[m.a] || (dmOut[m.a] = { unread: true, pings: 0 }); o.pings++; } // a DM is inherently addressed to you
       }
       return res.status(200).json({ channels: out, dms: dmOut });
     }
@@ -698,11 +728,20 @@ module.exports = async function handler(req, res) {
 
     if (action === 'voice-stats') {
       if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
-      const agg = await Log.aggregate([{ $match: { s: Number(id), ty: 'voice_leave' } }, { $group: { _id: '$a', total: { $sum: '$d' }, sessions: { $sum: 1 }, last: { $max: '$t' } } }, { $sort: { total: -1 } }, { $limit: 25 }]);
-      const us = await User.find({ _id: { $in: agg.map(a => a._id) } }).select('n av pl').lean();
-      const my = await User.findById(auth.userId).select('vt mc').lean();
+      const sid = Number(id);
+      const [rows, live, my] = await Promise.all([
+        VStat.find({ s: sid }).sort({ t: -1 }).limit(25).lean(),
+        Voice.find({ s: sid, ts: { $gt: vLive() } }).lean(),
+        User.findById(auth.userId).select('vt mc').lean()
+      ]);
+      const liveSecs = {};
+      for (const v of live) liveSecs[v._id] = Math.max(0, Math.round((nowSeconds() * 1000 - (v.j || v.ts * 1000)) / 1000));
+      const stats = rows.map(r => ({ id: r.u, seconds: r.t + (liveSecs[r.u] || 0), sessions: r.n, last: r.last }));
+      for (const uid of Object.keys(liveSecs)) if (!rows.some(r => r.u === Number(uid))) stats.push({ id: Number(uid), seconds: liveSecs[uid], sessions: 0, last: nowSeconds() });
+      stats.sort((a, b) => b.seconds - a.seconds);
+      const us = await User.find({ _id: { $in: stats.slice(0, 25).map(a => a.id) } }).select('n av pl').lean();
       const m = Object.fromEntries(us.map(u => [u._id, u]));
-      return res.status(200).json({ mine: { voice: (my && my.vt) || 0, msgs: (my && my.mc) || 0 }, stats: agg.filter(a => m[a._id]).map(a => ({ id: a._id, username: m[a._id].n, avatar: m[a._id].av || '', plus: !!m[a._id].pl, seconds: a.total, sessions: a.sessions, last: a.last })) });
+      return res.status(200).json({ mine: { voice: (my && my.vt) || 0, msgs: (my && my.mc) || 0 }, stats: stats.slice(0, 25).filter(a => m[a.id]).map(a => ({ id: a.id, username: m[a.id].n, avatar: m[a.id].av || '', plus: !!m[a.id].pl, seconds: a.seconds, sessions: a.sessions, last: a.last })) });
     }
 
     if (action === 'voice-history') { // Pratr Plus perk: your own recent voice sessions in a server
@@ -752,6 +791,36 @@ module.exports = async function handler(req, res) {
       if (!u) return res.status(404).json({ error: 'User not found.' });
       const logs = await Log.find({ s: 0, $or: [{ a: u._id }, { u: u._id }] }).sort({ _id: -1 }).limit(100).lean();
       return res.status(200).json({ username: u.n, voice: u.vt || 0, msgs: u.mc || 0, logs: logs.map(l => ({ id: l._id, t: l.t, ty: l.ty, an: l.an, un: l.un, d: l.d, x: l.x, cn: l.cn })) });
+    }
+
+    // ---------- one-time migration to schema v2 (admin, safe to call again) ----------
+    if (action === 'migrate') {
+      const adm = await User.findById(auth.userId).select('e').lean();
+      if (!adm || !isAdmin(adm.e)) return res.status(403).json({ error: 'Admins only.' });
+      const done = await Meta.findById('migrate1').lean();
+      if (done && done.v === 1) return res.status(200).json({ ok: true, already: true, at: done.at });
+      try { await Meta.create({ _id: 'migrate1', v: 0, at: 0 }); } catch (e) { if (e.code !== 11000) throw e; }
+      // a. Organized voice totals from the session history. $setOnInsert: rows already written by live sessions are left alone.
+      const voiceAgg = await Log.aggregate([{ $match: { ty: 'voice_leave', s: { $gt: 0 } } }, { $group: { _id: { s: '$s', u: '$a' }, t: { $sum: '$d' }, n: { $sum: 1 }, last: { $max: '$t' } } }]);
+      let vstats = 0;
+      for (const r of voiceAgg) {
+        const x = await VStat.updateOne({ _id: `${r._id.s}:${r._id.u}` }, { $setOnInsert: { s: r._id.s, u: r._id.u, t: r.t, n: r.n, last: r.last } }, { upsert: true });
+        vstats += x.upsertedCount || 0;
+      }
+      // b. Per-user counters, only where missing or still zero so live counts are never overwritten.
+      const vtAgg = await VStat.aggregate([{ $group: { _id: '$u', t: { $sum: '$t' } } }]);
+      let vtSet = 0;
+      for (const r of vtAgg) vtSet += (await User.updateOne({ _id: r._id, $or: [{ vt: { $exists: false } }, { vt: 0 }] }, { $set: { vt: r.t } })).modifiedCount;
+      const mcAgg = await Msg.aggregate([{ $group: { _id: '$a', n: { $sum: 1 } } }]);
+      let mcSet = 0;
+      for (const r of mcAgg) mcSet += (await User.updateOne({ _id: r._id, $or: [{ mc: { $exists: false } }, { mc: 0 }] }, { $set: { mc: r.n } })).modifiedCount;
+      // c. Defaults for old rows.
+      const defs = await User.updateMany({ $or: [{ pl: { $exists: false } }, { vt: { $exists: false } }, { mc: { $exists: false } }] }, [{ $set: { pl: { $ifNull: ['$pl', false] }, vt: { $ifNull: ['$vt', 0] }, mc: { $ifNull: ['$mc', 0] } } }], { updatePipeline: true });
+      // d. Indexes for the fast paths.
+      await Promise.all([User.createIndexes(), Msg.createIndexes(), Server.createIndexes(), Channel.createIndexes(), Voice.createIndexes(), VStat.createIndexes(), Signal.createIndexes(), Log.createIndexes(), Read.createIndexes()]);
+      await Meta.updateOne({ _id: 'migrate1' }, { v: 1, at: nowSeconds() });
+      await lg(0, 'migrate', auth.userId, { x: `vstats ${vstats}, vt ${vtSet}, mc ${mcSet}` });
+      return res.status(200).json({ ok: true, vstats, vtBackfilled: vtSet, mcBackfilled: mcSet, defaults: defs.modifiedCount });
     }
 
     // ---------- voice ----------

@@ -141,6 +141,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--coral); box-shad
 .day-div::before, .day-div::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .msg { display: flex; gap: 14px; padding: 2px 20px; }
 .msg:hover { background: rgba(239, 232, 218, .03); }
+.msg.pending { opacity: .55; }
 .msg.first { margin-top: 12px; padding-top: 4px; }
 .msg .gutter { width: 40px; flex: none; text-align: right; font-size: 10.5px; color: transparent; padding-top: 5px; user-select: none; }
 .msg:hover .gutter { color: var(--dim); }

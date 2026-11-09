@@ -20,7 +20,7 @@ const S = {
     me: null, servers: [], friends: [], view: 'home',
     server: null, channels: [], channelId: null, dm: null, members: [],
     last: {}, chLoaded: false, sig: '', sending: false, membersOn: (() => { try { const v = localStorage.getItem('members'); if (v) return v === '1'; } catch {} return window.innerWidth > 760; })(),
-    login: true, t1: null, t2: null, t3: null, t4: null, maxId: {}, voice: {}
+    login: true, t1: null, t2: null, t3: null, t4: null, maxId: {}, fullAt: {}, voice: {}
 };
 const V = { on: false, sid: null, chId: null, name: '', sname: '', stream: null, peers: new Map(), watch: new Map(), speak: new Set(), early: {}, cool: {}, joined: {}, ice: [], muted: false, deaf: false, mutedBefore: false, sig: '', ctx: null };
 
@@ -179,12 +179,11 @@ function startTimers() {
     S.t1 = setInterval(() => { if (!document.hidden && S.view !== 'home') loadMessages(false); }, 3000);
     S.t2 = setInterval(async () => {
         if (document.hidden) return;
-        await loadServers(); await loadFriends();
+        await Promise.all([loadServers(), loadFriends()]);
         if (S.view === 'server' && S.server) {
             const before = S.channelId, old = S.channels.map(c => c.id);
-            await loadChannels();
+            await Promise.all([loadChannels(), loadMembers()]);
             if (V.on && V.sid === S.server.id && !S.channels.some(c => c.id === V.chId)) leaveVoice(true);
-            loadMembers();
             const fresh = S.channels.filter(c => !old.includes(c.id));
             if (fresh.length && old.length) toast(`New channel #${fresh[0].name}`);
             if (before !== S.channelId) { renderAll(); loadMessages(true); } else renderSide();
@@ -239,11 +238,18 @@ async function loadMessages(force = false) {
     const isServer = S.view === 'server';
     if (isServer && S.channelId == null) return;
     if (isServer && (curChannel() || {}).kind === 'v') return;
-    const out = await post({ action: 'messages', kind: isServer ? 'server' : 'dm', id: isServer ? S.server.id : S.dm.id, ...(isServer ? { channelId: S.channelId } : {}) });
+    const after = S.maxId[key];
+    const full = force || after == null || Date.now() - (S.fullAt[key] || 0) > 30000; // periodic full resync catches reactions/deletes on older messages
+    const out = await post({ action: 'messages', kind: isServer ? 'server' : 'dm', id: isServer ? S.server.id : S.dm.id, ...(isServer ? { channelId: S.channelId } : {}), ...(!full ? { afterId: after } : {}) });
     if (chatKey() !== key) return; // user navigated away
     if (out.res.status === 404 && isServer) { await loadChannels(); renderAll(); return; }
     if (!out.res.ok) return;
-    renderMessages(out.data.messages || [], force);
+    const fresh = out.data.messages || [];
+    if (full) { S.fullAt[key] = Date.now(); renderMessages(fresh, force); return; }
+    if (!fresh.length) return;
+    let list = S_curMsgs;
+    for (const f of fresh) list = list.filter(p => !(p.pending && p.text === f.text && p.author.id === f.author.id)); // real message arrived, drop its optimistic twin
+    renderMessages([...list, ...fresh].slice(-100), false);
 }
 
 /* ---------- navigation ---------- */
@@ -529,6 +535,7 @@ function renderMessages(list, force) {
         if (day !== prevDay) { box.append(h('div', 'day-div', fmtDay(m.t))); prevDay = day; prev = null; }
         const same = prev && prev.author.id === m.author.id && m.t - prev.t < 300;
         const row = h('div', 'msg' + (same ? '' : ' first'));
+        if (m.pending) row.classList.add('pending');
         const gutter = h('div', 'gutter');
         if (same) gutter.textContent = fmtTime(m.t); else { const av = avatar(m.author.username, '', m.author.avatar); if (m.author.plus) av.classList.add('plus'); gutter.append(av); }
         const body = h('div', 'body');
@@ -546,8 +553,8 @@ function renderMessages(list, force) {
         if (mentionsMe) row.classList.add('mentioned');
         if (prevMax != null && m.id > prevMax && !m.mine && mentionsMe) toast(`${m.author.username} mentioned you`);
         [...new Set([...m.text.matchAll(/#invite=([a-z0-9]{5,48})/gi)].map(x => x[1].toLowerCase()))].forEach(code => body.append(inviteEmbed(code)));
-        row._ctx = [...userItems(m.author), ['Copy message', () => copy(m.text)], ...idItem('message', m.id), ...(m.mine || isOwner() ? ['-', ['Delete message', () => delMsg(m), true]] : [])];
-        row.append(gutter, body, reactTools(m));
+        row._ctx = m.pending ? [] : [...userItems(m.author), ['Copy message', () => copy(m.text)], ...idItem('message', m.id), ...(m.mine || isOwner() ? ['-', ['Delete message', () => delMsg(m), true]] : [])];
+        row.append(gutter, body, m.pending ? h('div', 'msg-tools') : reactTools(m));
         box.append(row);
         prev = m;
     });
@@ -572,10 +579,12 @@ async function sendMessage() {
     if (isServer && S.channelId == null) return toast('This server has no text channel yet.', true);
     const key = chatKey();
     input.value = ''; autosize(); input.focus();
+    const temp = { id: -Date.now(), mine: true, pending: true, text, t: Math.floor(Date.now() / 1000), rx: [], author: { id: S.me.id, username: S.me.username, avatar: S.me.avatar, plus: S.me.plus } };
+    renderMessages([...S_curMsgs, temp], true); // paint now, confirm with the server's echo
     const out = await post({ action: 'send', kind: isServer ? 'server' : 'dm', id: isServer ? S.server.id : S.dm.id, text, ...(isServer ? { channelId: S.channelId } : {}) });
     if (chatKey() !== key) return; // user navigated away while it was sending
-    if (out.res.ok) { S.sig = ''; renderMessages([...S_curMsgs, out.data.message], true); } // paint instantly from the server's echo, no second request
-    else { input.value = text; autosize(); toast(out.data.error || 'Message failed.', true); }
+    if (out.res.ok) { S.sig = ''; renderMessages([...S_curMsgs.filter(m => m.id !== temp.id && m.id !== out.data.message.id), out.data.message], true); }
+    else { renderMessages(S_curMsgs.filter(m => m.id !== temp.id), true); input.value = text; autosize(); toast(out.data.error || 'Message failed.', true); }
 }
 
 /* ---------- friends ---------- */
