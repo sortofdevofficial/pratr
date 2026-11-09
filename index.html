@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b0b0f">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://res.cloudinary.com; connect-src 'self' https://api.cloudinary.com; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'">
 <link rel="icon" type="image/png" href="/favicon.png?v=3">
 <link rel="stylesheet" href="/style.css">
 <title>pratr</title>
@@ -76,6 +77,8 @@
       <footer class="user-panel">
         <div class="ava sm" id="me-ava"><span id="me-initial">?</span><i class="dot on"></i></div>
         <div class="me-info"><strong id="me-name">…</strong><span id="me-email"></span></div>
+        <button class="icon-btn" id="sec-btn" title="Security" aria-label="Security"><svg viewBox="0 0 24 24" class="ic"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5z"/></svg></button>
+        <button class="icon-btn plus" id="plus-btn" title="Pratr Plus" aria-label="Pratr Plus"><svg viewBox="0 0 24 24" class="ic"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/></svg></button>
         <button class="icon-btn accent" id="edit-btn" title="Edit profile" aria-label="Edit profile"><svg viewBox="0 0 24 24" class="ic"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>
         <button class="icon-btn" id="logout-btn" title="Log out" aria-label="Log out"><svg viewBox="0 0 24 24" class="ic"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
       </footer>
@@ -167,6 +170,8 @@
   <button data-act="invite"><svg viewBox="0 0 24 24" class="ic"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>Invite people</button>
   <button data-act="channel" id="menu-channel"><svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg>Create channel</button>
   <button data-act="settings" id="menu-settings"><svg viewBox="0 0 24 24" class="ic"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Server settings</button>
+  <button data-act="vtime" id="menu-vtime"><svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Voice time</button>
+  <button data-act="audit" id="menu-audit"><svg viewBox="0 0 24 24" class="ic"><path d="M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h9"/></svg>Audit log</button>
   <button data-act="leave" class="danger" id="menu-leave"><svg viewBox="0 0 24 24" class="ic"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>Leave server</button>
 </div>
 
@@ -242,8 +247,61 @@
   </div>
 </div>
 
+<div class="modal hidden" id="modal-plus" role="dialog" aria-modal="true">
+  <div class="modal-card">
+    <button class="modal-x" data-close aria-label="Close">×</button>
+    <h2>Pratr Plus <span class="plus-price">$1</span></h2>
+    <p class="hint">A small way to support pratr and stand out.</p>
+    <ul class="perks"><li>✦ PLUS badge next to your name</li><li>Gold username in chats</li><li>✦ marker in server member lists</li><li>Gold ring around your avatar in chats</li><li>Messages up to 4000 characters (instead of 2000)</li><li>Your own voice session history</li></ul>
+    <p class="hint" id="plus-state"></p>
+    <div id="plus-buy"><p class="hint">To buy, join our Headquarters server and tell us you want Pratr Plus. We will activate it on your account there.</p><button class="btn primary" id="plus-buy-btn" type="button">Open Headquarters</button></div>
+    <div id="plus-admin" class="hidden"><div class="sec-title"><span>Admin</span></div>
+      <div class="inline-form"><input id="plus-user" placeholder="Username or email" autocomplete="off"><button class="btn primary" id="plus-on" type="button">Grant</button><button class="btn ghost" id="plus-off" type="button">Revoke</button><button class="btn ghost" id="plus-act" type="button">Activity</button></div><div class="logbox hidden" id="plus-log" style="margin-top:12px"></div></div>
+    <p class="msg-err" id="plus-msg"></p>
+  </div>
+</div>
+
+<div class="modal hidden" id="modal-audit" role="dialog" aria-modal="true">
+  <div class="modal-card wide">
+    <button class="modal-x" data-close aria-label="Close">×</button>
+    <h2>Audit log</h2><p class="hint">Everything that happens in this server is saved here for good.</p>
+    <label class="field"><span>Show</span><select id="audit-filter"><option value="">Everything</option><option value="channel">Channels</option><option value="member">Members and invites</option><option value="voice">Voice joins and leaves</option><option value="message">Deleted messages</option></select></label>
+    <div class="logbox" id="audit-list"></div>
+  </div>
+</div>
+
+<div class="modal hidden" id="modal-vtime" role="dialog" aria-modal="true">
+  <div class="modal-card wide">
+    <button class="modal-x" data-close aria-label="Close">×</button>
+    <h2>Voice time</h2><p class="hint">Total time spent in this server's voice channels.</p>
+    <p class="hint" id="vtime-me"></p>
+    <div class="logbox" id="vtime-list"></div>
+    <div class="sec-title"><span>Your recent sessions <em class="badge plus">✦ Plus</em></span></div>
+    <div class="logbox" id="vhist-list"></div>
+  </div>
+</div>
+
+<div class="modal hidden" id="modal-sec" role="dialog" aria-modal="true">
+  <div class="modal-card wide">
+    <button class="modal-x" data-close aria-label="Close">×</button>
+    <h2>Security</h2>
+    <p class="hint">For safety we save the IP address, device and approximate place of every sign-in. Sign out anything you do not recognise.</p>
+    <div class="sec-title"><span>Where you are signed in</span></div>
+    <div class="logbox" id="sec-sessions"></div>
+    <button class="btn ghost" id="sec-others" type="button">Sign out everywhere else</button>
+    <div class="sec-title"><span>Recent sign-in activity</span></div>
+    <div class="logbox" id="sec-history"></div>
+    <div class="sec-title"><span>Change password</span></div>
+    <label class="field"><span>Current password</span><input type="password" id="sec-old" autocomplete="current-password"></label>
+    <label class="field"><span>New password (8+ characters)</span><input type="password" id="sec-new" autocomplete="new-password"></label>
+    <button class="btn primary" id="sec-pw" type="button">Change password</button>
+    <p class="msg-err" id="sec-msg"></p>
+  </div>
+</div>
+
 <div class="menu hidden" id="ctx-menu"></div>
 <div class="toast-stack" id="toast-stack"></div>
 <script src="/app.js"></script>
+<script src="/voice.js"></script>
 </body>
 </html>

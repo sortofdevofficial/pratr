@@ -10,7 +10,42 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
 const onlineCut = () => nowSeconds() - 45; // seen within the last 45s = online
 const statusOf = (u) => (u.ls || 0) > onlineCut() && u.ps !== 'invisible' ? (u.ps || 'online') : 'offline'; // what other people see
 
+// ---------- security helpers ----------
+const clientIp = (req) => String((req.headers && (req.headers['x-forwarded-for'] || req.headers['x-real-ip'])) || '').split(',')[0].trim().slice(0, 64) || 'unknown';
+const geoOf = (req) => { const hd = req.headers || {}, dec = (v) => { try { return decodeURIComponent(v || ''); } catch { return ''; } }; return [dec(hd['x-vercel-ip-city']), hd['x-vercel-ip-country']].filter(Boolean).join(', '); };
+function deviceOf(ua) {
+  ua = String(ua || '');
+  const b = /Edg\//.test(ua) ? 'Edge' : /OPR\/|Opera/.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+  const o = /Windows/.test(ua) ? 'Windows' : /Android/.test(ua) ? 'Android' : /iPhone|iPad|iOS/.test(ua) ? 'iOS' : /Mac OS X|Macintosh/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : 'unknown OS';
+  return `${b} on ${o}`;
+}
+const clientInfo = (req) => { const ua = String((req.headers && req.headers['user-agent']) || ''); return { i: clientIp(req), li: clientIp(req), d: deviceOf(ua), ua: ua.slice(0, 300), c: geoOf(req), ls: nowSeconds() }; };
+const infoText = (req) => { const c = clientInfo(req); return `${c.i} · ${c.d}${c.c ? ' · ' + c.c : ''}`; };
+// Rate limiting kept in MongoDB so it works across serverless instances.
+const Rate = mongoose.models.Rate || mongoose.model('Rate', new mongoose.Schema({ _id: String, n: Number, x: Number }, { versionKey: false }), 'rl');
+async function hit(key, limit, windowSec) {
+  const t = nowSeconds();
+  const r = await Rate.findOneAndUpdate({ _id: key, x: { $gt: t } }, { $inc: { n: 1 } }, { new: true }).lean();
+  if (r) return r.n <= limit;
+  await Rate.updateOne({ _id: key }, { n: 1, x: t + windowSec }, { upsert: true });
+  if (Math.random() < 0.02) Rate.deleteMany({ x: { $lt: t } }).catch(() => {});
+  return true;
+}
+const DUMMY_HASH = bcrypt.hashSync('pratr-dummy', 10); // compared when the email is unknown so timing does not reveal it
+
+// ---------- schema version (for future migrations) ----------
+// Every collection below carries a small "v" field set to CURRENT_SCHEMA_VERSION on write.
+// A future migration script can find old documents with `{ v: { $lt: N } }` (or missing) and upgrade them in place,
+// so the app never has to assume every row was written by today's code.
+const CURRENT_SCHEMA_VERSION = 1;
+const Meta = mongoose.models.Meta || mongoose.model('Meta', new mongoose.Schema({ _id: String, v: Number, at: Number }, { versionKey: false }), 'meta');
+async function ensureSchemaVersion() {
+  await Meta.updateOne({ _id: 'schema' }, { $setOnInsert: { v: CURRENT_SCHEMA_VERSION, at: nowSeconds() } }, { upsert: true });
+}
+const withV = (doc) => ({ ...doc, v: CURRENT_SCHEMA_VERSION });
+
 async function connectDB() {
+  await ensureSchemaVersion().catch(() => {});
   if (db.conn) return db.conn;
   if (!db.promise) {
     db.promise = mongoose.connect(process.env.MONGO_URI, { serverSelectionTimeoutMS: 8000, maxPoolSize: 1 })
@@ -30,7 +65,10 @@ const userSchema = new mongoose.Schema({
   b: String,
   av: String,
   ls: Number,
-  ps: String
+  ps: String,
+  pl: Boolean, // Pratr Plus
+  vt: Number, // total seconds in voice, all servers
+  mc: Number // messages sent
 }, { versionKey: false });
 const User = mongoose.models.User || mongoose.model('User', userSchema);
 
@@ -46,9 +84,13 @@ const Pending = mongoose.models.Pending || mongoose.model('Pending', pendingSche
 const sessionSchema = new mongoose.Schema({
   _id: String,
   u: Number,
-  i: String,
-  d: String,
-  s: Number
+  i: String, // IP at login
+  d: String, // device label, e.g. Chrome on Windows
+  s: Number, // signed in at
+  li: String, // last seen IP
+  ua: String, // raw user agent
+  c: String, // approximate place (city, country)
+  ls: Number // last active
 }, { versionKey: false });
 const Session = mongoose.models.Session || mongoose.model('Session', sessionSchema);
 
@@ -62,7 +104,8 @@ const msgSchema = new mongoose.Schema({
   t: { type: Number, default: nowSeconds },
   d: { type: Number, default: 0 },
   dby: Number,
-  dt: Number
+  dt: Number,
+  rx: mongoose.Schema.Types.Mixed // reactions: { emoji: [userIds] }
 }, { versionKey: false });
 const Msg = mongoose.models.Msg || mongoose.model('Msg', msgSchema, 'msgs');
 
@@ -95,8 +138,37 @@ const Voice = mongoose.models.Voice || mongoose.model('Voice', voiceSchema, 'voi
 const signalSchema = new mongoose.Schema({ to: Number, from: Number, d: String, x: Number }, { versionKey: false });
 signalSchema.index({ to: 1 });
 const Signal = mongoose.models.Signal || mongoose.model('Signal', signalSchema, 'signals');
+// Audit log: every important server event is stored forever (never deleted). Names are copied in so old entries stay readable.
+const logSchema = new mongoose.Schema({ s: Number, t: { type: Number, default: nowSeconds }, ty: String, a: Number, an: String, u: Number, un: String, ch: Number, cn: String, d: Number, x: String }, { versionKey: false });
+logSchema.index({ s: 1, ty: 1, t: -1 });
+const Log = mongoose.models.Log || mongoose.model('Log', logSchema, 'logs');
+async function lg(s, ty, a, o = {}) {
+  try {
+    const ids = [a, o.u].filter(x => x != null);
+    const us = ids.length ? await User.find({ _id: { $in: ids } }).select('n').lean() : [];
+    const nm = Object.fromEntries(us.map(u => [u._id, u.n]));
+    await Log.create({ s, ty, a, an: nm[a] || '', u: o.u, un: nm[o.u] || '', ch: o.ch, cn: o.cn || '', d: o.d || 0, x: String(o.x || '').slice(0, 300) });
+  } catch (e) { console.error('[log]', e); }
+}
 const VOICE_LIVE = 15;
 const vLive = () => nowSeconds() - VOICE_LIVE;
+// Closes a voice session in the log. endTs (seconds) is used for sessions that just stopped sending heartbeats.
+async function endVoice(v, endTs) {
+  const secs = Math.max(0, Math.round(((endTs || nowSeconds()) * 1000 - (v.j || v.ts * 1000)) / 1000));
+  const ch = await Channel.findById(v.ch).select('n').lean();
+  await lg(v.s, 'voice_leave', v._id, { ch: v.ch, cn: ch ? ch.n : '', d: secs });
+  await User.updateOne({ _id: v._id }, { $inc: { vt: secs } });
+}
+async function reapVoice(sid) {
+  const stale = await Voice.find({ s: sid, ts: { $lte: vLive() } }).lean();
+  for (const r of stale) { const v = await Voice.findOneAndDelete({ _id: r._id, ts: { $lte: vLive() } }); if (v) await endVoice(v, v.ts); }
+}
+// Read state: one row per user per channel/DM, so unread dots and ping counts survive restarts and work across devices.
+const readSchema = new mongoose.Schema({ _id: String, u: Number, t: Number, mid: Number, v: Number }, { versionKey: false });
+readSchema.index({ u: 1 });
+const Read = mongoose.models.Read || mongoose.model('Read', readSchema, 'reads');
+const readKey = (u, kind, id, chId) => kind === 'server' ? `${u}:s${id}:${chId}` : `${u}:d${id}`;
+
 async function voiceRoom(sid, chId) {
   const vs = await Voice.find({ s: sid, ch: chId, ts: { $gt: vLive() } }).lean();
   const us = await User.find({ _id: { $in: vs.map(v => v._id) } }).select('n av').lean();
@@ -196,6 +268,7 @@ async function nextId(Model) {
   return (last ? last._id : 0) + 1;
 }
 
+const isAdmin = (e) => String(process.env.ADMIN_EMAILS || 'sortofdevofficial@gmail.com').toLowerCase().split(',').map(s => s.trim()).filter(Boolean).includes(String(e || '').toLowerCase());
 const areFriends = async (x, y) => !!(await Friend.exists({ $or: [{ a: x, b: y }, { a: y, b: x }], s: 'a' }));
 
 const isMember = async (serverId, userId) => !!(await Server.exists({ _id: Number(serverId), m: userId }));
@@ -203,46 +276,64 @@ const isMember = async (serverId, userId) => !!(await Server.exists({ _id: Numbe
 const srv = (s) => ({ id: s._id, name: s.n, owner: s.o, count: s.m.length, icon: s.ic || '', desc: s.ds || '', pub: !!s.pub });
 const okImg = (u) => u === '' || (typeof u === 'string' && u.startsWith(`https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/`));
 
+
 module.exports = async function handler(req, res) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Frame-Options', 'DENY');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
     let body = req.body || {};
     if (typeof body === 'string') { try { body = JSON.parse(body); } catch {} }
 
+    if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16) return res.status(500).json({ error: 'Server is not configured.' });
     await connectDB();
-    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q, status, ck, to, sig, mu, df } = body;
+    const tooMany = () => res.status(429).json({ error: 'Too many attempts. Please wait a bit and try again.' });
+    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q, status, ck, to, sig, mu, df, on, npw, lastId } = body;
 
     if (action === 'register') {
       const key = String(email || '').trim().toLowerCase();
       if (!key || !password) return res.status(400).json({ error: 'Email and password required.' });
+      if (String(password).length < 8 || String(password).length > 200) return res.status(400).json({ error: 'Password must be 8 to 200 characters.' });
+      if (!(await hit(`reg:${clientIp(req)}`, 8, 3600)) || !(await hit(`rege:${key}`, 5, 3600))) return tooMany();
       if (await User.exists({ e: key })) return res.status(400).json({ error: 'Email already registered.' });
       const uname = String(username || '').trim().slice(0, 20);
       if (uname && await User.exists({ n: uname })) return res.status(400).json({ error: 'Username taken.' });
       const codeStr = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
-      await Pending.updateOne({ _id: key }, { p: await bcrypt.hash(password, 10), o: await bcrypt.hash(codeStr, 8), un: uname, x: nowSeconds() + 600 }, { upsert: true });
+      await Pending.updateOne({ _id: key }, { p: await bcrypt.hash(password, 12), o: await bcrypt.hash(codeStr, 8), un: uname, x: nowSeconds() + 600 }, { upsert: true });
       await sendOtp(key, codeStr);
       return res.status(200).json({ message: 'Code sent.', email: key });
     }
 
     if (action === 'verify') {
       const key = String(email || '').trim().toLowerCase();
+      if (!(await hit(`otp:${key}`, 6, 900)) || !(await hit(`otpi:${clientIp(req)}`, 30, 900))) return tooMany();
       const pending = await Pending.findById(key).lean();
       if (!pending || pending.x < nowSeconds() || !(await bcrypt.compare(String(otp || ''), pending.o))) return res.status(400).json({ error: 'Invalid code.' });
       const userId = await nextId(User);
       const user = await User.create({ _id: userId, e: key, p: pending.p, n: pending.un || `user${userId}` });
       await Pending.deleteOne({ _id: key });
+      await lg(0, 'signup', user._id, { x: infoText(req) });
+      await ensureSchemaVersion();
       const sid = crypto.randomBytes(12).toString('hex');
-      await Session.create({ _id: `${user._id}:${sid}`, u: user._id, s: nowSeconds() });
+      await Session.create({ _id: `${user._id}:${sid}`, u: user._id, s: nowSeconds(), ...clientInfo(req) });
       const token = jwt.sign({ userId: user._id, sid }, process.env.JWT_SECRET, { expiresIn: '7d' });
       return res.status(200).json({ token, email: user.e, id: user._id });
     }
 
     if (action === 'login') {
       const key = String(email || '').trim().toLowerCase();
+      if (!(await hit(`login:${clientIp(req)}`, 30, 600)) || !(await hit(`logine:${key}`, 10, 600))) return tooMany();
       const user = await User.findOne({ e: key });
-      if (!user || !(await bcrypt.compare(String(password || ''), user.p))) return res.status(401).json({ error: 'Invalid credentials.' });
+      const okPw = await bcrypt.compare(String(password || ''), user ? user.p : DUMMY_HASH);
+      if (!user || !okPw) {
+        if (user) await lg(0, 'login_fail', user._id, { x: infoText(req) });
+        return res.status(401).json({ error: 'Invalid credentials.' });
+      }
+      await lg(0, 'login', user._id, { x: infoText(req) });
       const sid = crypto.randomBytes(12).toString('hex');
-      await Session.create({ _id: `${user._id}:${sid}`, u: user._id, s: nowSeconds() });
+      await Session.create({ _id: `${user._id}:${sid}`, u: user._id, s: nowSeconds(), ...clientInfo(req) });
       const token = jwt.sign({ userId: user._id, sid }, process.env.JWT_SECRET, { expiresIn: '7d' });
       return res.status(200).json({ token, email: user.e, id: user._id });
     }
@@ -250,22 +341,26 @@ module.exports = async function handler(req, res) {
     const authHeader = (req.headers && req.headers.authorization) || '';
     let auth = null;
     try { auth = authHeader.startsWith('Bearer ') ? jwt.verify(authHeader.slice(7), process.env.JWT_SECRET) : null; } catch { auth = null; }
-    if (!auth || !(await Session.exists({ _id: `${auth.userId}:${auth.sid}` }))) return res.status(401).json({ error: 'Please log in again.' });
+    const sess = auth ? await Session.findById(`${auth.userId}:${auth.sid}`).select('ls s').lean() : null;
+    if (!sess) return res.status(401).json({ error: 'Please log in again.' });
+    if ((sess.ls || 0) < nowSeconds() - 60) await Session.updateOne({ _id: `${auth.userId}:${auth.sid}` }, { ls: nowSeconds(), li: clientIp(req), c: geoOf(req) });
 
     if (action === 'logout') {
       await Session.deleteOne({ _id: `${auth.userId}:${auth.sid}` });
+      await lg(0, 'logout', auth.userId);
       return res.status(200).json({ ok: true });
     }
 
     if (action === 'me') {
       await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
-      const me = await User.findById(auth.userId).select('e n av b ps').lean();
-      return res.status(200).json({ id: me._id, email: me.e, username: me.n, avatar: me.av || '', bio: me.b || '', status: me.ps || 'online' });
+      const me = await User.findById(auth.userId).select('e n av b ps pl').lean();
+      return res.status(200).json({ id: me._id, email: me.e, username: me.n, avatar: me.av || '', bio: me.b || '', status: me.ps || 'online', plus: !!me.pl, admin: isAdmin(me.e) });
     }
 
     if (action === 'presence-set') {
       const st = ['online', 'idle', 'dnd', 'invisible'].includes(status) ? status : 'online';
       await User.updateOne({ _id: auth.userId }, { ps: st, ls: nowSeconds() });
+      await lg(0, 'status', auth.userId, { x: st });
       return res.status(200).json({ status: st });
     }
 
@@ -275,11 +370,15 @@ module.exports = async function handler(req, res) {
       if (await User.exists({ n: uname, _id: { $ne: auth.userId } })) return res.status(400).json({ error: 'Username taken.' });
       if (!okImg(avatar ?? '')) return res.status(400).json({ error: 'Invalid image.' });
       const cleanBio = String(bio || '').trim().slice(0, 160);
+      const old = await User.findById(auth.userId).select('n av b').lean();
       await User.updateOne({ _id: auth.userId }, { n: uname, av: avatar || '', b: cleanBio });
+      const diff = [old.n !== uname && `name ${old.n} → ${uname}`, (old.av || '') !== (avatar || '') && 'avatar changed', (old.b || '') !== cleanBio && 'bio changed'].filter(Boolean);
+      if (diff.length) await lg(0, 'profile', auth.userId, { x: diff.join(', ') });
       return res.status(200).json({ username: uname, avatar: avatar || '', bio: cleanBio });
     }
 
     if (action === 'upload-sign') {
+      if (!(await hit(`up:${auth.userId}`, 20, 3600))) return tooMany();
       const { CLOUDINARY_CLOUD_NAME: cloud, CLOUDINARY_API_KEY: key, CLOUDINARY_API_SECRET: secret } = process.env;
       if (!cloud || !key || !secret) return res.status(500).json({ error: 'Image uploads are not configured.' });
       const folder = kind === 'servers' ? 'pratr/servers' : 'pratr/avatars', timestamp = nowSeconds();
@@ -293,16 +392,19 @@ module.exports = async function handler(req, res) {
       if (!okImg(icon ?? '')) return res.status(400).json({ error: 'Invalid image.' });
       const server = await Server.findOneAndUpdate({ _id: Number(id), o: auth.userId }, { n: cleanName, ic: icon || '', ds: String(desc || '').trim().slice(0, 120), pub: !!pub }, { new: true }).lean();
       if (!server) return res.status(403).json({ error: 'Only the owner can edit the server.' });
+      await lg(server._id, 'server_update', auth.userId, { x: `${cleanName}${pub ? ' (listed in Discover)' : ''}` });
       return res.status(200).json({ server: srv(server) });
     }
 
     if (action === 'friend-add') {
+      if (!(await hit(`fr:${auth.userId}`, 20, 3600))) return tooMany();
       const q = String(username || '').trim();
       const other = await User.findOne({ $or: [{ n: q }, { e: q.toLowerCase() }] }).lean();
       if (!other) return res.status(404).json({ error: 'User not found.' });
       if (other._id === auth.userId) return res.status(400).json({ error: "You can't add yourself." });
       const [x, y] = [auth.userId, other._id].sort((p, q2) => p - q2);
       await Friend.updateOne({ _id: `${x}:${y}` }, { $setOnInsert: { a: x, b: y, s: 'a' } }, { upsert: true });
+      await lg(0, 'friend_add', auth.userId, { u: other._id });
       return res.status(200).json({ friend: { id: other._id, username: other.n, email: other.e, avatar: other.av } });
     }
 
@@ -314,18 +416,20 @@ module.exports = async function handler(req, res) {
       if (!server.m.includes(auth.userId)) {
         server.m.push(auth.userId); await server.save();
         if (inv) await Invite.updateOne({ _id: inv._id }, { $inc: { u: 1 } });
+        await lg(server._id, 'member_join', auth.userId, { x: inv ? `invite ${inv._id}` : 'invite' });
       }
       return res.status(200).json({ server: srv(server) });
     }
 
     if (action === 'invite-create') {
+      if (!(await hit(`iv:${auth.userId}`, 30, 3600))) return tooMany();
       const server = await Server.findOne({ _id: Number(id), m: auth.userId }).lean();
       if (!server) return res.status(403).json({ error: 'You are not a member of this server.' });
       const secs = Math.max(0, Math.min(Number(ttl) || 0, 31536000));
       const x = secs ? nowSeconds() + secs : 0;
       for (let tries = 0; tries < 5; tries++) {
         const newCode = shortCode();
-        try { await Invite.create({ _id: newCode, s: server._id, by: auth.userId, x }); return res.status(200).json({ code: newCode, expires: x }); }
+        try { await Invite.create({ _id: newCode, s: server._id, by: auth.userId, x }); await lg(server._id, 'invite_create', auth.userId, { x: newCode + (x ? '' : ' (never expires)') }); return res.status(200).json({ code: newCode, expires: x }); }
         catch (e) { if (e.code !== 11000) throw e; } // code already taken, try another
       }
       return res.status(500).json({ error: 'Could not create invite.' });
@@ -350,7 +454,7 @@ module.exports = async function handler(req, res) {
     if (action === 'server-join-public') {
       const server = await Server.findOne({ _id: Number(id), pub: true });
       if (!server) return res.status(404).json({ error: 'This server is not listed.' });
-      if (!server.m.includes(auth.userId)) { server.m.push(auth.userId); await server.save(); }
+      if (!server.m.includes(auth.userId)) { server.m.push(auth.userId); await server.save(); await lg(server._id, 'member_join', auth.userId, { x: 'public join' }); }
       return res.status(200).json({ server: srv(server) });
     }
 
@@ -361,13 +465,14 @@ module.exports = async function handler(req, res) {
       const isServerOwner = msg.s ? !!(await Server.exists({ _id: msg.s, o: auth.userId })) : false;
       if (msg.a !== auth.userId && !isServerOwner) return res.status(403).json({ error: "You can't delete this message." });
       await Msg.updateOne({ _id: msg._id }, { d: 1, dby: auth.userId, dt: nowSeconds() });
+      if (msg.s) { const mc = await Channel.findById(msg.ch).select('n').lean(); await lg(msg.s, 'message_delete', auth.userId, { u: msg.a, ch: msg.ch, cn: mc ? mc.n : '', x: String(msg.m || '').slice(0, 200) }); }
       return res.status(200).json({ ok: true });
     }
 
     if (action === 'friends') {
       const docs = await Friend.find({ $or: [{ a: auth.userId }, { b: auth.userId }], s: 'a' }).lean();
-      const users = await User.find({ _id: { $in: docs.map(f => f.a === auth.userId ? f.b : f.a) } }).select('e n av b ls ps').lean();
-      return res.status(200).json({ friends: users.map(u => ({ id: u._id, email: u.e, username: u.n, avatar: u.av, bio: u.b, status: statusOf(u) })) });
+      const users = await User.find({ _id: { $in: docs.map(f => f.a === auth.userId ? f.b : f.a) } }).select('e n av b ls ps pl').lean();
+      return res.status(200).json({ friends: users.map(u => ({ id: u._id, email: u.e, username: u.n, avatar: u.av, bio: u.b, status: statusOf(u), plus: !!u.pl })) });
     }
 
     if (action === 'servers') {
@@ -377,11 +482,13 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'server-create') {
+      if (!(await hit(`sv:${auth.userId}`, 10, 3600))) return tooMany();
       const cleanName = String(name || '').trim().slice(0, 60);
       if (!cleanName) return res.status(400).json({ error: 'Server name required.' });
       const serverId = await nextId(Server);
       const server = await Server.create({ _id: serverId, n: cleanName, o: auth.userId, m: [auth.userId], i: crypto.randomBytes(24).toString('hex') });
       await Channel.create({ _id: await nextId(Channel), s: serverId, n: 'general', cat: 'TEXT CHANNELS' });
+      await lg(serverId, 'server_create', auth.userId, { x: cleanName });
       return res.status(200).json({ server: srv(server) });
     }
 
@@ -400,6 +507,7 @@ module.exports = async function handler(req, res) {
       const k = ck === 'v' ? 'v' : 't';
       const cat = String(category || '').trim().slice(0, 40) || (k === 'v' ? 'VOICE CHANNELS' : 'TEXT CHANNELS');
       await Channel.create({ _id: chId, s: serverId, n: chName, cat, k });
+      await lg(serverId, 'channel_create', auth.userId, { ch: chId, cn: chName, x: k === 'v' ? 'voice' : 'text' });
       return res.status(200).json({ channel: { id: chId, name: chName, category: cat, kind: k } });
     }
 
@@ -413,14 +521,15 @@ module.exports = async function handler(req, res) {
       await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
       const server = await Server.findOne({ _id: Number(id), m: auth.userId }).lean();
       if (!server) return res.status(403).json({ error: 'Not a member.' });
-      const users = await User.find({ _id: { $in: server.m } }).select('n av b ls ps').lean();
-      return res.status(200).json({ owner: server.o, members: users.map(u => ({ id: u._id, username: u.n, avatar: u.av, bio: u.b, status: statusOf(u), online: statusOf(u) !== 'offline' })) });
+      const users = await User.find({ _id: { $in: server.m } }).select('n av b ls ps pl').lean();
+      return res.status(200).json({ owner: server.o, members: users.map(u => ({ id: u._id, username: u.n, avatar: u.av, bio: u.b, status: statusOf(u), plus: !!u.pl, online: statusOf(u) !== 'offline' })) });
     }
 
     if (action === 'channel-delete') {
       const ch = await Channel.findById(Number(channelId)).lean();
       if (!ch || !(await Server.exists({ _id: ch.s, o: auth.userId }))) return res.status(403).json({ error: 'Only the owner can delete channels.' });
-      await Channel.updateOne({ _id: ch._id }, { d: 1 }); // hidden, messages and channel stay in the database
+      await Channel.updateOne({ _id: ch._id }, { d: 1 });
+      await lg(ch.s, 'channel_delete', auth.userId, { ch: ch._id, cn: ch.n, x: ch.k === 'v' ? 'voice' : 'text' }); // hidden, messages and channel stay in the database
       return res.status(200).json({ ok: true });
     }
 
@@ -429,6 +538,8 @@ module.exports = async function handler(req, res) {
       if (!server) return res.status(404).json({ error: 'Not a member.' });
       if (server.o === auth.userId) return res.status(400).json({ error: 'Owners cannot leave their own server.' });
       await Server.updateOne({ _id: server._id }, { $pull: { m: auth.userId } });
+      const lv = await Voice.findOneAndDelete({ _id: auth.userId, s: server._id }); if (lv) await endVoice(lv);
+      await lg(server._id, 'member_leave', auth.userId);
       return res.status(200).json({ ok: true });
     }
 
@@ -444,15 +555,17 @@ module.exports = async function handler(req, res) {
         match = { $or: [{ a: auth.userId, b: Number(id) }, { a: Number(id), b: auth.userId }] };
       }
       const msgs = await Msg.find({ ...match, d: { $ne: 1 } }).sort({ _id: -1 }).limit(100).lean();
-      const authors = await User.find({ _id: { $in: [...new Set(msgs.map(m => m.a))] } }).select('n av').lean();
+      const authors = await User.find({ _id: { $in: [...new Set(msgs.map(m => m.a))] } }).select('n av pl').lean();
       const people = Object.fromEntries(authors.map(u => [u._id, u]));
       return res.status(200).json({
-        messages: msgs.reverse().map(m => ({ id: m._id, mine: m.a === auth.userId, text: m.m, t: m.t, author: { id: m.a, username: people[m.a]?.n || 'Unknown', avatar: people[m.a]?.av } }))
+        messages: msgs.reverse().map(m => ({ id: m._id, mine: m.a === auth.userId, text: m.m, t: m.t, rx: Object.entries(m.rx || {}).map(([e, a]) => ({ e, n: a.length, me: a.includes(auth.userId) })).filter(r => r.n), author: { id: m.a, username: people[m.a]?.n || 'Unknown', avatar: people[m.a]?.av, plus: !!people[m.a]?.pl } }))
       });
     }
 
     if (action === 'send') {
-      const clean = String(text || '').trim().slice(0, 2000);
+      if (!(await hit(`msg:${auth.userId}`, 20, 10))) return res.status(429).json({ error: 'You are sending messages too fast.' });
+      const plusU = await User.findById(auth.userId).select('pl').lean();
+      const clean = String(text || '').trim().slice(0, plusU && plusU.pl ? 4000 : 2000);
       if (!clean) return res.status(400).json({ error: 'Empty message.' });
       let target;
       if (kind === 'server') {
@@ -464,7 +577,174 @@ module.exports = async function handler(req, res) {
         target = { b: Number(id) };
       }
       const msg = await Msg.create({ _id: await nextId(Msg), a: auth.userId, ...target, m: clean });
+      await User.updateOne({ _id: auth.userId }, { $inc: { mc: 1 } });
       return res.status(200).json({ message: { id: msg._id, mine: true, text: msg.m, t: msg.t } });
+    }
+
+    // ---------- read state (seen/unseen) ----------
+    if (action === 'mark-read') {
+      const key = readKey(auth.userId, kind, Number(id), Number(channelId));
+      await Read.updateOne({ _id: key }, withV({ u: auth.userId, t: nowSeconds(), mid: Number(lastId) || 0 }), { upsert: true });
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'unreads') {
+      // Per server channel: unread (any new message) and pings (messages that actually mention you or @everyone/@here from the owner).
+      const servers = await Server.find({ m: auth.userId }).select('_id o').lean();
+      const chans = await Channel.find({ s: { $in: servers.map(s => s._id) }, k: 't', d: { $ne: 1 } }).select('_id s').lean();
+      const reads = await Read.find({ u: auth.userId }).lean();
+      const rmap = Object.fromEntries(reads.map(r => [r._id, r]));
+      const ownerOf = Object.fromEntries(servers.map(s => [s._id, s.o]));
+      const out = {};
+      for (const c of chans) {
+        const r = rmap[readKey(auth.userId, 'server', c.s, c._id)];
+        const since = r ? r.t : 0;
+        const msgs = await Msg.find({ s: c.s, ch: c._id, d: { $ne: 1 }, t: { $gt: since }, a: { $ne: auth.userId } }).select('m a').limit(50).lean();
+        if (!msgs.length) continue;
+        const me = await User.findById(auth.userId).select('n').lean();
+        const mine = (me.n || '').toLowerCase();
+        const pings = msgs.filter(m => {
+          const t = String(m.m || '').toLowerCase();
+          if (t.includes('@' + mine)) return true;
+          if (m.a === ownerOf[c.s] && (t.includes('@everyone') || t.includes('@here'))) return true;
+          return false;
+        }).length;
+        out[c._id] = { unread: true, pings };
+      }
+      const dmReads = reads.filter(r => r._id.startsWith(`${auth.userId}:d`));
+      const friends = await Friend.find({ $or: [{ a: auth.userId }, { b: auth.userId }], s: 'a' }).lean();
+      const dmOut = {};
+      for (const f of friends) {
+        const other = f.a === auth.userId ? f.b : f.a;
+        const r = rmap[readKey(auth.userId, 'dm', other)];
+        const since = r ? r.t : 0;
+        const n = await Msg.countDocuments({ a: other, b: auth.userId, d: { $ne: 1 }, t: { $gt: since } });
+        if (n) dmOut[other] = { unread: true, pings: n }; // a DM is inherently addressed to you, so every new DM counts as a ping
+      }
+      return res.status(200).json({ channels: out, dms: dmOut });
+    }
+
+    // ---------- security: sessions, password ----------
+    if (action === 'security') {
+      const cur = `${auth.userId}:${auth.sid}`;
+      await Session.deleteMany({ u: auth.userId, s: { $lt: nowSeconds() - 7 * 86400 } });
+      const ss = await Session.find({ u: auth.userId }).sort({ s: -1 }).limit(30).lean();
+      const hist = await Log.find({ s: 0, a: auth.userId, ty: { $in: ['signup', 'login', 'login_fail', 'logout', 'session_revoke', 'password_change'] } }).sort({ _id: -1 }).limit(40).lean();
+      return res.status(200).json({
+        sessions: ss.map(x => ({ id: x._id, device: x.d || 'Unknown device', ip: x.i || '', lastIp: x.li || '', place: x.c || '', t: x.s, ls: x.ls || x.s, current: x._id === cur })),
+        history: hist.map(l => ({ t: l.t, ty: l.ty, x: l.x }))
+      });
+    }
+
+    if (action === 'session-revoke') {
+      const sid = String(id || '');
+      if (!sid.startsWith(`${auth.userId}:`)) return res.status(403).json({ error: 'Not your session.' });
+      await Session.deleteOne({ _id: sid });
+      await lg(0, 'session_revoke', auth.userId, { x: infoText(req) });
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'sessions-revoke-others') {
+      await Session.deleteMany({ u: auth.userId, _id: { $ne: `${auth.userId}:${auth.sid}` } });
+      await lg(0, 'session_revoke', auth.userId, { x: 'all other devices' });
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'password-change') {
+      if (!(await hit(`pw:${auth.userId}`, 5, 600))) return tooMany();
+      const u = await User.findById(auth.userId).select('p');
+      if (!u || !(await bcrypt.compare(String(password || ''), u.p))) return res.status(400).json({ error: 'Your current password is wrong.' });
+      const np = String(npw || '');
+      if (np.length < 8 || np.length > 200) return res.status(400).json({ error: 'New password must be 8 to 200 characters.' });
+      await User.updateOne({ _id: auth.userId }, { p: await bcrypt.hash(np, 12) });
+      await Session.deleteMany({ u: auth.userId, _id: { $ne: `${auth.userId}:${auth.sid}` } });
+      await lg(0, 'password_change', auth.userId, { x: infoText(req) });
+      return res.status(200).json({ ok: true });
+    }
+
+    // ---------- reactions ----------
+    if (action === 'react') {
+      if (!(await hit(`rx:${auth.userId}`, 60, 60))) return tooMany();
+      const emo = String(text || '').trim();
+      if (!emo || emo.length > 16 || /[.$\s]/.test(emo)) return res.status(400).json({ error: 'Invalid emoji.' });
+      const msg = await Msg.findById(Number(id)).lean();
+      if (!msg || msg.d === 1) return res.status(404).json({ error: 'Message not found.' });
+      const allowed = msg.s ? await isMember(msg.s, auth.userId) : ((msg.a === auth.userId || msg.b === auth.userId) && await areFriends(msg.a, msg.b));
+      if (!allowed) return res.status(403).json({ error: 'You cannot react here.' });
+      const rx = msg.rx || {}, has = (rx[emo] || []).includes(auth.userId);
+      if (!has && !rx[emo] && Object.keys(rx).length >= 20) return res.status(400).json({ error: 'This message has too many different reactions.' });
+      if (has) {
+        await Msg.updateOne({ _id: msg._id }, { $pull: { [`rx.${emo}`]: auth.userId } });
+        await Msg.updateOne({ _id: msg._id, [`rx.${emo}`]: { $size: 0 } }, { $unset: { [`rx.${emo}`]: '' } });
+      } else await Msg.updateOne({ _id: msg._id }, { $addToSet: { [`rx.${emo}`]: auth.userId } });
+      await lg(msg.s || 0, has ? 'unreact' : 'react', auth.userId, { u: msg.a, ch: msg.ch, x: emo });
+      return res.status(200).json({ ok: true });
+    }
+
+    // ---------- audit log, voice time, moderation ----------
+    if (action === 'audit-log') {
+      if (!(await Server.exists({ _id: Number(id), o: auth.userId }))) return res.status(403).json({ error: 'Only the owner can view the audit log.' });
+      const f = q === 'voice' ? /^voice_/ : q === 'channel' ? /^channel_/ : q === 'member' ? /^(member_|invite_)/ : q === 'message' ? /^message_/ : null;
+      const logs = await Log.find({ s: Number(id), ...(f ? { ty: f } : {}) }).sort({ _id: -1 }).limit(150).lean();
+      return res.status(200).json({ logs: logs.map(l => ({ id: l._id, t: l.t, ty: l.ty, an: l.an, un: l.un, cn: l.cn, d: l.d, x: l.x })) });
+    }
+
+    if (action === 'voice-stats') {
+      if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
+      const agg = await Log.aggregate([{ $match: { s: Number(id), ty: 'voice_leave' } }, { $group: { _id: '$a', total: { $sum: '$d' }, sessions: { $sum: 1 }, last: { $max: '$t' } } }, { $sort: { total: -1 } }, { $limit: 25 }]);
+      const us = await User.find({ _id: { $in: agg.map(a => a._id) } }).select('n av pl').lean();
+      const my = await User.findById(auth.userId).select('vt mc').lean();
+      const m = Object.fromEntries(us.map(u => [u._id, u]));
+      return res.status(200).json({ mine: { voice: (my && my.vt) || 0, msgs: (my && my.mc) || 0 }, stats: agg.filter(a => m[a._id]).map(a => ({ id: a._id, username: m[a._id].n, avatar: m[a._id].av || '', plus: !!m[a._id].pl, seconds: a.total, sessions: a.sessions, last: a.last })) });
+    }
+
+    if (action === 'voice-history') { // Pratr Plus perk: your own recent voice sessions in a server
+      const me = await User.findById(auth.userId).select('pl').lean();
+      if (!me || !me.pl) return res.status(403).json({ error: 'Voice history is a Pratr Plus feature.' });
+      if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
+      const logs = await Log.find({ s: Number(id), a: auth.userId, ty: 'voice_leave' }).sort({ _id: -1 }).limit(30).lean();
+      return res.status(200).json({ sessions: logs.map(l => ({ t: l.t, cn: l.cn, d: l.d })) });
+    }
+
+    if (action === 'member-kick') {
+      const server = await Server.findOne({ _id: Number(id), o: auth.userId }).lean();
+      if (!server) return res.status(403).json({ error: 'Only the owner can kick members.' });
+      const uid = Number(to);
+      if (uid === auth.userId || !server.m.includes(uid)) return res.status(400).json({ error: 'You cannot kick that member.' });
+      await Server.updateOne({ _id: server._id }, { $pull: { m: uid } });
+      const kv = await Voice.findOneAndDelete({ _id: uid, s: server._id }); if (kv) await endVoice(kv);
+      await lg(server._id, 'member_kick', auth.userId, { u: uid });
+      return res.status(200).json({ ok: true });
+    }
+
+    // ---------- Pratr Plus (sold by hand in the Headquarters server) ----------
+    if (action === 'hq-join') {
+      const server = await Server.findById(Number(process.env.HQ_SERVER_ID || 1));
+      if (!server) return res.status(404).json({ error: 'The Headquarters server is not set up yet.' });
+      if (!server.m.includes(auth.userId)) { server.m.push(auth.userId); await server.save(); await lg(server._id, 'member_join', auth.userId, { x: 'public join' }); }
+      return res.status(200).json({ server: srv(server) });
+    }
+
+    if (action === 'plus-grant') {
+      const adm = await User.findById(auth.userId).select('e').lean();
+      if (!adm || !isAdmin(adm.e)) return res.status(403).json({ error: 'Admins only.' });
+      const qn = String(username || '').trim();
+      const u = qn && await User.findOne({ $or: [{ n: qn }, { e: qn.toLowerCase() }] }).select('n').lean();
+      if (!u) return res.status(404).json({ error: 'User not found.' });
+      const yes = on !== false;
+      await User.updateOne({ _id: u._id }, { pl: yes });
+      await lg(0, 'plus_grant', auth.userId, { u: u._id, x: yes ? 'on' : 'off' });
+      return res.status(200).json({ username: u.n, plus: yes });
+    }
+
+    if (action === 'activity') { // admin: everything one account has done (logins, profile edits, friends, status, plus)
+      const adm = await User.findById(auth.userId).select('e').lean();
+      if (!adm || !isAdmin(adm.e)) return res.status(403).json({ error: 'Admins only.' });
+      const qn = String(username || '').trim();
+      const u = qn && await User.findOne({ $or: [{ n: qn }, { e: qn.toLowerCase() }] }).select('n vt mc').lean();
+      if (!u) return res.status(404).json({ error: 'User not found.' });
+      const logs = await Log.find({ s: 0, $or: [{ a: u._id }, { u: u._id }] }).sort({ _id: -1 }).limit(100).lean();
+      return res.status(200).json({ username: u.n, voice: u.vt || 0, msgs: u.mc || 0, logs: logs.map(l => ({ id: l._id, t: l.t, ty: l.ty, an: l.an, un: l.un, d: l.d, x: l.x, cn: l.cn })) });
     }
 
     // ---------- voice ----------
@@ -478,7 +758,10 @@ module.exports = async function handler(req, res) {
       if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
       const ch = await Channel.findOne({ _id: Number(channelId), s: Number(id), k: 'v', d: { $ne: 1 } }).lean();
       if (!ch) return res.status(404).json({ error: 'Voice channel not found.' });
+      await reapVoice(ch.s);
+      const prev = await Voice.findOneAndDelete({ _id: auth.userId }); if (prev) await endVoice(prev, prev.ts > vLive() ? undefined : prev.ts); // switching channels closes the old session
       await Signal.deleteMany({ $or: [{ to: auth.userId }, { from: auth.userId }] });
+      await lg(ch.s, 'voice_join', auth.userId, { ch: ch._id, cn: ch.n });
       await Voice.updateOne({ _id: auth.userId }, { s: ch.s, ch: ch._id, ts: nowSeconds(), j: Date.now(), mu: !!mu, df: !!df }, { upsert: true });
       await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
       return res.status(200).json({ peers: await voiceRoom(ch.s, ch._id) });
@@ -487,6 +770,7 @@ module.exports = async function handler(req, res) {
     if (action === 'voice-sync') {
       const v = await Voice.findById(auth.userId).lean();
       if (!v) return res.status(404).json({ error: 'Not in voice.' });
+      if (!!v.mu !== !!mu || !!v.df !== !!df) await lg(v.s, 'voice_state', auth.userId, { ch: v.ch, x: df ? 'deafened' : mu ? 'muted' : 'unmuted' });
       await Voice.updateOne({ _id: auth.userId }, { ts: nowSeconds(), mu: !!mu, df: !!df });
       await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
       const sigs = await Signal.find({ to: auth.userId, x: { $gt: nowSeconds() } }).sort({ _id: 1 }).limit(200).lean();
@@ -504,13 +788,14 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'voice-leave') {
-      await Voice.deleteOne({ _id: auth.userId });
+      const gone = await Voice.findOneAndDelete({ _id: auth.userId }); if (gone) await endVoice(gone);
       await Signal.deleteMany({ $or: [{ to: auth.userId }, { from: auth.userId }] });
       return res.status(200).json({ ok: true });
     }
 
     if (action === 'voice-list') {
       if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
+      await reapVoice(Number(id));
       const vs = await Voice.find({ s: Number(id), ts: { $gt: vLive() } }).lean();
       const us = await User.find({ _id: { $in: vs.map(v => v._id) } }).select('n av').lean();
       const m = Object.fromEntries(us.map(u => [u._id, u]));
@@ -522,6 +807,7 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid action.' });
   } catch (err) {
     console.error('[auth error]', err);
-    return res.status(500).json({ error: err.message || 'Server error.' });
+    const internal = /^Mongo|^Mongoose|Cast|ValidationError/.test(String(err.name || '')) || /ECONN|buffering|timed out/i.test(String(err.message || ''));
+    return res.status(500).json({ error: internal ? 'Something went wrong. Please try again.' : (err.message || 'Server error.') });
   }
 };

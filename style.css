@@ -274,3 +274,39 @@ textarea { resize: none; display: block; }
 .vctl { display: flex; justify-content: center; gap: 10px; padding: 16px; border-top: 1px solid var(--line); }
 .vctl .btn { display: inline-flex; align-items: center; gap: 8px; } .vctl .btn.off { color: var(--danger); }
 @media (prefers-reduced-motion: reduce) { .vtile .ava.xl { transition: none; } }
+
+/* ---------- @everyone / @here and Pratr Plus ---------- */
+.mention.all { background: rgba(255, 211, 107, .18); color: #ffd36b; }
+.msg.mentioned:has(.mention.all) { box-shadow: inset 3px 0 0 #ffd36b; }
+.plus-badge { font-size: 10px; font-weight: 700; letter-spacing: .06em; color: #2a1d00; background: linear-gradient(135deg, #ffe08a, #ffb84d); border-radius: 5px; padding: 1px 6px; margin-left: 6px; vertical-align: 1px; }
+.badge.plus { background: linear-gradient(135deg, #ffe08a, #ffb84d); color: #2a1d00; }
+.icon-btn.plus { color: #ffd36b; } .icon-btn.plus:hover { background: rgba(255, 211, 107, .15); }
+.plus-price { margin-left: 8px; font-size: 14px; font-weight: 700; color: #2a1d00; background: linear-gradient(135deg, #ffe08a, #ffb84d); border-radius: 8px; padding: 2px 9px; vertical-align: 3px; }
+.perks { margin: 4px 0 14px; padding-left: 20px; color: var(--txt); line-height: 1.8; }
+
+/* ---------- audit log, voice time, plus extras ---------- */
+.modal-card.wide { max-width: 640px; }
+.logbox { max-height: 46vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--bg1); margin-bottom: 12px; }
+.logrow { display: flex; gap: 12px; align-items: baseline; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.logrow:last-child { border-bottom: 0; }
+.logrow time { flex: none; color: var(--dim); font-size: 12px; min-width: 112px; }
+.logrow span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.logrow b { color: var(--mut); min-width: 22px; }
+.ava.plus { box-shadow: 0 0 0 2px var(--bg2), 0 0 0 4px #ffd36b; }
+
+/* ---------- reactions and security ---------- */
+.msg { position: relative; }
+.msg-tools { position: absolute; right: 20px; top: -14px; display: none; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; }
+.msg:hover .msg-tools, .msg-tools:focus-within { display: flex; }
+.rx-pop { position: absolute; right: 0; top: 34px; z-index: 6; display: flex; flex-wrap: wrap; width: 212px; gap: 2px; padding: 6px; background: var(--bg2); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 30px rgba(0, 0, 0, .5); }
+.rx-pop button { width: 36px; height: 36px; border-radius: 8px; font-size: 20px; } .rx-pop button:hover { background: var(--bg4); }
+.rxs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.rx { display: inline-flex; gap: 6px; align-items: center; padding: 2px 9px; border-radius: 9px; background: var(--bg3); border: 1px solid transparent; font-size: 13px; transition: .15s; }
+.rx:hover { background: var(--bg4); } .rx.me { border-color: var(--coral); background: rgba(255, 90, 78, .14); }
+.logrow .btn { padding: 4px 10px; font-size: 12.5px; flex: none; }
+
+/* ---------- unread / pings ---------- */
+.unread { color: var(--txt); font-weight: 700; }
+.unread-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--txt); margin-left: auto; flex: none; }
+.ping-badge { margin-left: auto; flex: none; background: var(--coral); color: #fff; font-size: 11px; font-weight: 800; border-radius: 9px; padding: 1px 7px; }
+.dm-item { position: relative; }

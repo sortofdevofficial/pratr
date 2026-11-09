@@ -11,7 +11,8 @@ const ICON = {
     mic: svg('M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2M12 19v3'),
     micOff: svg('M2 2l20 20M9 9v3a3 3 0 0 0 5.1 2.1M15 9.3V5a3 3 0 0 0-5.9-.8M19 10v2a7 7 0 0 1-.9 3.4M5 10v2a7 7 0 0 0 11.5 5.4M12 19v3'),
     headphones: svg('M3 18v-6a9 9 0 0 1 18 0v6M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z'),
-    x: svg('M18 6 6 18M6 6l12 12')
+    x: svg('M18 6 6 18M6 6l12 12'),
+    smile: svg('M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01')
 };
 
 const S = {
@@ -19,7 +20,7 @@ const S = {
     me: null, servers: [], friends: [], view: 'home',
     server: null, channels: [], channelId: null, dm: null, members: [],
     last: {}, chLoaded: false, sig: '', sending: false, membersOn: (() => { try { const v = localStorage.getItem('members'); if (v) return v === '1'; } catch {} return window.innerWidth > 760; })(),
-    login: true, t1: null, t2: null, t3: null, maxId: {}, voice: {}
+    login: true, t1: null, t2: null, t3: null, t4: null, maxId: {}, voice: {}
 };
 const V = { on: false, sid: null, chId: null, name: '', sname: '', stream: null, peers: new Map(), watch: new Map(), speak: new Set(), early: {}, cool: {}, joined: {}, ice: [], muted: false, deaf: false, mutedBefore: false, sig: '', ctx: null };
 
@@ -125,7 +126,7 @@ function finishLogin(data) {
 }
 
 function clearSession() {
-    clearInterval(S.t1); clearInterval(S.t2); clearInterval(S.t3);
+    clearInterval(S.t1); clearInterval(S.t2); clearInterval(S.t3); clearInterval(S.t4);
     leaveVoice(true);
     S.token = ''; S.me = null; S.servers = []; S.friends = []; S.view = 'home';
     S.server = null; S.dm = null; S.channels = []; S.channelId = null; S.sig = '';
@@ -138,6 +139,7 @@ $('logout-btn').onclick = async () => { await post({ action: 'logout' }); clearS
 
 /* ---------- boot ---------- */
 function setMe(u) {
+    $('chat-input').maxLength = u && u.plus ? 4000 : 2000; // Pratr Plus: longer messages
     const name = u.username || 'user';
     const letter = u.avatar ? '' : ini(name);
     $('me-name').textContent = $('hp-name').textContent = name;
@@ -167,6 +169,7 @@ async function boot() {
 function startTimers() {
     clearInterval(S.t1); clearInterval(S.t2); clearInterval(S.t3);
     S.t3 = setInterval(() => { if (!document.hidden) loadVoice(); }, 2500);
+    clearInterval(S.t4); S.t4 = setInterval(() => { if (!document.hidden) pollUnread(); }, 4000); pollUnread();
     S.t1 = setInterval(() => { if (!document.hidden && S.view !== 'home') loadMessages(false); }, 3000);
     S.t2 = setInterval(async () => {
         if (document.hidden) return;
@@ -182,7 +185,6 @@ function startTimers() {
         }
     }, 5000);
 }
-
 /* ---------- data ---------- */
 async function loadServers() {
     const out = await post({ action: 'servers' });
@@ -296,6 +298,7 @@ function openDM(user) {
     renderAll();
     loadMessages(true);
     closeNav();
+    markRead();
     $('chat-input').focus();
 }
 function selectChannel(id) {
@@ -304,10 +307,10 @@ function selectChannel(id) {
     renderSide(); renderMain();
     loadMessages(true);
     closeNav();
+    markRead();
     const vc = curChannel();
     if (vc && vc.kind === 'v') joinVoice(vc);
 }
-
 /* ---------- rendering ---------- */
 function renderAll() { renderRail(); renderSide(); renderMain(); renderMembers(); }
 
@@ -340,7 +343,9 @@ function renderSide() {
     S.friends.forEach(u => {
         const b = h('button', 'dm-item' + (S.view === 'dm' && S.dm && S.dm.id === u.id ? ' active' : ''));
         const da = avatar(u.username || u.email, 'sm', u.avatar); da.append(dot(u.status));
-        b.append(da, h('span', '', u.username || u.email));
+        const dun = S.unread.dms[u.id];
+        b.append(da, h('span', dun ? 'unread' : '', u.username || u.email));
+        if (dun) b.append(h('em', 'ping-badge', String(dun.pings)));
         b.onclick = () => openDM(u);
         b._ctx = userItems(u);
         dms.append(b);
@@ -364,8 +369,11 @@ function renderSide() {
         chans.forEach(c => {
             const it = h('div', 'ch-item' + (c.id === S.channelId ? ' active' : ''));
             it.tabIndex = 0; it.setAttribute('role', 'button');
-            it.innerHTML = c.kind === 'v' ? ICON.speaker : ICON.hash;
-            it.append(h('span', '', c.name));
+                    it.innerHTML = c.kind === 'v' ? ICON.speaker : ICON.hash;
+            const un = c.kind === 't' && S.unread.channels[c.id];
+            it.append(h('span', c.id === S.channelId ? '' : (un ? 'unread' : ''), c.name));
+            if (un && un.pings) it.append(h('em', 'ping-badge', String(un.pings)));
+            else if (un) it.append(h('i', 'unread-dot'));
             if (isOwner()) {
                 const del = h('button', 'ch-del'); del.innerHTML = ICON.trash; del.title = 'Delete channel';
                 del.onclick = (e) => { e.stopPropagation(); deleteChannel(c); };
@@ -476,9 +484,10 @@ function renderMembers() {
         list.forEach(m => {
             const r = h('div', 'mem' + (title === 'Offline' ? ' off' : '')), a = avatar(m.username, 'sm', m.avatar);
             a.append(dot(m.status));
-            r._ctx = userItems(m); r.title = m.bio || '';
+            r._ctx = [...userItems(m), ...(isOwner() && S.me && m.id !== S.me.id ? ['-', ['Kick from server', () => kickMember(m), true]] : [])]; r.title = m.bio || '';
             r.append(a, h('span', '', m.username || 'Member'));
             if (S.server && m.id === S.server.owner) r.append(h('em', 'badge', 'OWNER'));
+            if (m.plus) r.append(h('em', 'badge plus', '✦'));
             box.append(r);
         });
     });
@@ -486,10 +495,11 @@ function renderMembers() {
 
 function renderMessages(list, force) {
     const box = $('messages');
-    const sig = list.map(m => m.id).join(',');
+    const sig = list.map(m => m.id + ':' + (m.rx || []).map(r => r.e + r.n + (r.me ? 1 : 0)).join('')).join(',');
     if (sig === S.sig && !force) return;
     const key = chatKey(), prevMax = S.maxId[key];
     const stick = force || box.scrollTop + box.clientHeight >= box.scrollHeight - 100;
+    const prevTop = box.scrollTop;
     box.textContent = '';
 
     const start = h('div', 'msg-start');
@@ -512,29 +522,30 @@ function renderMessages(list, force) {
         const same = prev && prev.author.id === m.author.id && m.t - prev.t < 300;
         const row = h('div', 'msg' + (same ? '' : ' first'));
         const gutter = h('div', 'gutter');
-        if (same) gutter.textContent = fmtTime(m.t); else gutter.append(avatar(m.author.username, '', m.author.avatar));
+        if (same) gutter.textContent = fmtTime(m.t); else { const av = avatar(m.author.username, '', m.author.avatar); if (m.author.plus) av.classList.add('plus'); gutter.append(av); }
         const body = h('div', 'body');
         if (!same) {
             const head = h('div', 'head');
             const name = h('strong', '', m.author.username);
-            name.style.color = color(m.author.username).replace('48%', '70%');
+            name.style.color = m.author.plus ? '#ffd36b' : color(m.author.username).replace('48%', '70%');
             const time = h('time', '', fmtTime(m.t));
-            head.append(name, time);
+            head.append(name, ...(m.author.plus ? [h('span', 'plus-badge', '✦ PLUS')] : []), time);
             body.append(head);
         }
-        const [txt, mentionsMe] = richText(m.text);
+        const [txt, mentionsMe] = richText(m.text, S.view === 'server' && !!S.server && m.author.id === S.server.owner); // only the server owner can ping @everyone / @here
         body.append(txt);
+        if (m.rx && m.rx.length) body.append(reactRow(m));
         if (mentionsMe) row.classList.add('mentioned');
         if (prevMax != null && m.id > prevMax && !m.mine && mentionsMe) toast(`${m.author.username} mentioned you`);
         [...new Set([...m.text.matchAll(/#invite=([a-z0-9]{5,48})/gi)].map(x => x[1].toLowerCase()))].forEach(code => body.append(inviteEmbed(code)));
         row._ctx = [...userItems(m.author), ['Copy message', () => copy(m.text)], ...idItem('message', m.id), ...(m.mine || isOwner() ? ['-', ['Delete message', () => delMsg(m), true]] : [])];
-        row.append(gutter, body);
+        row.append(gutter, body, reactTools(m));
         box.append(row);
         prev = m;
     });
     S.sig = sig;
     S.maxId[key] = list.length ? Math.max(...list.map(m => m.id)) : (prevMax ?? 0);
-    if (stick) box.scrollTop = box.scrollHeight;
+    if (stick) box.scrollTop = box.scrollHeight; else box.scrollTop = prevTop;
 }
 
 /* ---------- composer ---------- */
@@ -570,7 +581,6 @@ $('friend-add-form').onsubmit = async (e) => {
     e.preventDefault();
     if (await addFriend($('friend-add-input').value)) $('friend-add-input').value = '';
 };
-
 /* ---------- modals ---------- */
 function openModal(id) { closeModals(); $(id).classList.remove('hidden'); const f = $(id).querySelector('input'); if (f) setTimeout(() => f.focus(), 30); }
 function closeModals() { document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden')); }
@@ -693,6 +703,7 @@ $('server-menu-btn').onclick = (e) => {
     if (!menu.classList.contains('hidden')) return menu.classList.add('hidden');
     $('menu-channel').classList.toggle('hidden', !isOwner());
     $('menu-settings').classList.toggle('hidden', !isOwner());
+    $('menu-audit').classList.toggle('hidden', !isOwner());
     $('menu-leave').classList.toggle('hidden', isOwner());
     const r = $('server-menu-btn').getBoundingClientRect();
     menu.style.left = Math.max(8, Math.min(r.right - 220, window.innerWidth - 228)) + 'px';
@@ -707,6 +718,8 @@ $('server-menu').onclick = async (e) => {
     if (act === 'invite') openInvite();
     if (act === 'channel') openChannelModal();
     if (act === 'settings') openServerSettings();
+    if (act === 'audit') openAudit();
+    if (act === 'vtime') openVoiceTime();
     if (act === 'leave' && S.server && confirm(`Leave ${S.server.name}?`)) {
         const out = await post({ action: 'server-leave', id: S.server.id });
         if (!out.res.ok) return toast(out.data.error || 'Could not leave.', true);
@@ -752,20 +765,20 @@ function segments(text, names) { // split text into plain strings and {m, who} m
     if (last < text.length) out.push(text.slice(last));
     return out;
 }
-function richText(text) { // returns [element, mentionsMe]; text nodes only, so no HTML injection
+function richText(text, canAll) { // returns [element, mentionsMe]; text nodes only, so no HTML injection
     const t = h('div', 'text'), mine = (S.me?.username || '').toLowerCase();
     let me = false;
-    segments(text, mnames()).forEach(s => {
+    segments(text, canAll ? [...mnames(), 'everyone', 'here'] : mnames()).forEach(s => {
         if (typeof s === 'string') return t.append(s);
-        const hit = s.who.toLowerCase() === mine; if (hit) me = true;
-        t.append(h('span', 'mention' + (hit ? ' me' : ''), s.m));
+        const all = canAll && /^(everyone|here)$/i.test(s.who), hit = all || s.who.toLowerCase() === mine; if (hit) me = true;
+        t.append(h('span', 'mention' + (hit ? ' me' : '') + (all ? ' all' : ''), s.m));
     });
     return [t, me];
 }
 const mpop = $('mention-pop'); let mSel = 0, mList = [];
 function updateMentions() {
     const m = input.value.slice(0, input.selectionStart).match(/(^|\s)@([^\s@]{0,20})$/);
-    mList = m ? [...new Set(mnames())].filter(n => n.toLowerCase().startsWith(m[2].toLowerCase())).slice(0, 6) : [];
+    mList = m ? [...new Set([...mnames(), ...(S.view === 'server' && isOwner() ? ['everyone', 'here'] : [])])].filter(n => n.toLowerCase().startsWith(m[2].toLowerCase())).slice(0, 6) : [];
     if (!mList.length) return mpop.classList.add('hidden');
     mSel = Math.min(mSel, mList.length - 1);
     mpop.textContent = '';
@@ -939,228 +952,185 @@ document.addEventListener('keydown', (e) => {
         trail.forEach((p, i) => { const f = 1 - i / N; dot(p.x, p.y, 1.5 + f * 5, 0.15 + f * 0.85); });
     })();
 })();
+/* ---------- Pratr Plus ---------- */
+function openPlus() {
+    const has = !!(S.me && S.me.plus);
+    $('plus-state').textContent = has ? 'You have Pratr Plus. Thank you for supporting pratr! ✦' : '';
+    $('plus-buy').classList.toggle('hidden', has);
+    $('plus-admin').classList.toggle('hidden', !(S.me && S.me.admin));
+    $('plus-msg').textContent = '';
+    openModal('modal-plus');
+}
+$('plus-btn').onclick = openPlus;
+$('plus-buy-btn').onclick = async () => {
+    const out = await post({ action: 'hq-join' });
+    if (!out.res.ok) { $('plus-msg').textContent = out.data.error || 'Could not open Headquarters.'; return; }
+    closeModals(); await loadServers(); openServer(out.data.server.id);
+    toast('Welcome to Headquarters! Tell us you want Pratr Plus.');
+};
+async function plusGrant(on) {
+    const u = $('plus-user').value.trim();
+    if (!u) return;
+    const out = await post({ action: 'plus-grant', username: u, on });
+    $('plus-msg').style.color = out.res.ok ? 'var(--bone)' : '';
+    $('plus-msg').textContent = out.res.ok ? `${out.data.username}: Plus ${out.data.plus ? 'activated' : 'removed'}.` : (out.data.error || 'Failed.');
+}
+$('plus-act').onclick = async () => {
+    const u = $('plus-user').value.trim(), box = $('plus-log');
+    if (!u) return;
+    const out = await post({ action: 'activity', username: u });
+    box.classList.remove('hidden'); box.textContent = '';
+    if (!out.res.ok) return void box.append(h('div', 'side-empty', out.data.error || 'Failed.'));
+    box.append(h('div', 'side-empty', `${out.data.username}: ${fmtDur(out.data.voice)} in voice, ${out.data.msgs} messages`));
+    out.data.logs.forEach(l => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(l.t)), h('span', '', logText(l))); box.append(r); });
+};
+$('plus-on').onclick = () => plusGrant(true);
+$('plus-off').onclick = () => plusGrant(false);
 
-/* ---------- voice channels (WebRTC mesh; signalling goes through the polling API) ---------- */
-async function loadVoice() {
-    if (S.view !== 'server' || !S.server) return;
-    const sid = S.server.id;
-    const out = await post({ action: 'voice-list', id: sid });
-    if (!out.res.ok || !S.server || S.server.id !== sid) return;
-    const keep = V.on && V.sid === sid ? S.voice[V.chId] : null; // our own sync is fresher
-    S.voice = out.data.voice || {};
-    if (keep) S.voice[V.chId] = keep;
-    refreshVoiceUI();
+/* ---------- audit log, voice time, kick ---------- */
+const fmtDur = (s) => { s = Math.max(0, Math.round(s)); const hh = Math.floor(s / 3600), mm = Math.floor(s % 3600 / 60), ss = s % 60; return hh ? `${hh}h ${mm}m` : mm ? `${mm}m ${ss}s` : `${ss}s`; };
+const stamp = (t) => new Date(t * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+function logText(l) {
+    const a = l.an || 'Someone', u = l.un || 'someone';
+    switch (l.ty) {
+        case 'server_create': return `${a} created the server “${l.x}”`;
+        case 'server_update': return `${a} updated the server: ${l.x}`;
+        case 'channel_create': return `${a} created the ${l.x} channel ${l.cn}`;
+        case 'channel_delete': return `${a} deleted the ${l.x} channel ${l.cn}`;
+        case 'member_join': return `${a} joined (${l.x})`;
+        case 'member_leave': return `${a} left the server`;
+        case 'member_kick': return `${a} kicked ${u}`;
+        case 'invite_create': return `${a} created invite ${l.x}`;
+        case 'message_delete': return `${a} deleted ${l.an === l.un ? 'their' : u + '’s'} message in #${l.cn}: “${l.x}”`;
+        case 'voice_join': return `${a} joined voice channel ${l.cn}`;
+        case 'voice_state': return `${a} ${l.x} themselves in voice`;
+        case 'signup': return `${a} created their account${l.x ? ` (${l.x})` : ''}`;
+        case 'login': return `${a} logged in${l.x ? ` (${l.x})` : ''}`;
+        case 'login_fail': return `Failed login attempt${l.x ? ` (${l.x})` : ''}`;
+        case 'logout': return `${a} logged out`;
+        case 'session_revoke': return `${a} signed out a device${l.x ? ` (${l.x})` : ''}`;
+        case 'password_change': return `${a} changed their password${l.x ? ` (${l.x})` : ''}`;
+        case 'react': return `${a} reacted ${l.x} to ${u}’s message`;
+        case 'unreact': return `${a} removed ${l.x} from ${u}’s message`;
+        case 'profile': return `${a} updated their profile: ${l.x}`;
+        case 'friend_add': return `${a} added ${u} as a friend`;
+        case 'status': return `${a} set their status to ${l.x}`;
+        case 'plus_grant': return `${a} turned Pratr Plus ${l.x} for ${u}`;
+        case 'voice_leave': return `${a} left voice channel ${l.cn} after ${fmtDur(l.d)}`;
+        default: return `${a}: ${l.ty}`;
+    }
 }
-function refreshVoiceUI(force) {
-    const sig = JSON.stringify([S.voice, V.on, V.chId, V.muted, V.deaf, S.channelId, S.view]);
-    if (!force && sig === V.sig) return;
-    V.sig = sig;
-    renderSide(); renderVoiceStage(); renderVoiceBar();
-}
-function voiceFlag(p) { if (!p.df && !p.mu) return null; const i = h('i', 'vflag'); i.innerHTML = p.df ? ICON.headphones : ICON.micOff; i.title = p.df ? 'Deafened' : 'Muted'; return i; }
-function voiceAva(p, cls) { const a = avatar(p.username, cls, p.avatar); a.dataset.vu = p.id; a.classList.toggle('speaking', V.speak.has(p.id)); return a; }
-function voiceRow(p) {
-    const r = h('div', 'vrow');
-    r.append(voiceAva(p, 'xs'), h('span', '', p.username || 'Member'));
-    const f = voiceFlag(p); if (f) r.append(f);
-    return r;
-}
-function renderVoiceBar() {
-    $('voice-bar').classList.toggle('hidden', !V.on);
-    if (!V.on) return;
-    $('vb-sub').textContent = `${V.name} / ${V.sname}`;
-    const m = $('vb-mute'), d = $('vb-deaf');
-    m.innerHTML = V.muted ? ICON.micOff : ICON.mic; m.title = V.muted ? 'Unmute' : 'Mute'; m.classList.toggle('off', V.muted);
-    d.innerHTML = ICON.headphones; d.title = V.deaf ? 'Undeafen' : 'Deafen'; d.classList.toggle('off', V.deaf);
-    $('vb-leave').innerHTML = ICON.x;
-}
-function renderVoiceStage() {
-    const box = $('voice-stage'), ch = curChannel();
-    if (!box || !ch || ch.kind !== 'v' || S.view !== 'server') return;
-    const list = S.voice[ch.id] || [], here = V.on && V.chId === ch.id;
+async function loadAudit() {
+    const box = $('audit-list');
+    box.textContent = 'Loading…';
+    const out = await post({ action: 'audit-log', id: S.server.id, q: $('audit-filter').value });
     box.textContent = '';
-    const grid = h('div', 'vgrid');
-    if (!list.length) grid.append(h('div', 'vempty', 'Nobody is in this voice channel yet.'));
-    list.forEach(p => {
-        const t = h('div', 'vtile'), n = h('div', 'vname');
-        n.append(h('span', '', p.username || 'Member'));
-        const f = voiceFlag(p); if (f) n.append(f);
-        t.append(voiceAva(p, 'xl'), n);
-        grid.append(t);
+    if (!out.res.ok) return void box.append(h('div', 'side-empty', out.data.error || 'Could not load the log.'));
+    if (!out.data.logs.length) box.append(h('div', 'side-empty', 'Nothing logged yet.'));
+    out.data.logs.forEach(l => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(l.t)), h('span', '', logText(l))); box.append(r); });
+}
+function openAudit() { if (!isOwner()) return; openModal('modal-audit'); loadAudit(); }
+$('audit-filter').onchange = loadAudit;
+async function openVoiceTime() {
+    openModal('modal-vtime');
+    const box = $('vtime-list'), hist = $('vhist-list');
+    box.textContent = 'Loading…'; hist.textContent = '';
+    const out = await post({ action: 'voice-stats', id: S.server.id });
+    box.textContent = '';
+    if (out.res.ok) $('vtime-me').textContent = `You: ${fmtDur(out.data.mine.voice)} in voice across all servers · ${out.data.mine.msgs} messages sent`;
+    if (!out.res.ok) box.append(h('div', 'side-empty', out.data.error || 'Could not load voice time.'));
+    else if (!out.data.stats.length) box.append(h('div', 'side-empty', 'Nobody has spent time in voice yet.'));
+    else out.data.stats.forEach((s, i) => {
+        const r = h('div', 'logrow');
+        r.append(h('b', '', `${i + 1}.`), h('span', '', `${s.username}${s.plus ? ' ✦' : ''} — ${fmtDur(s.seconds)} over ${s.sessions} session${s.sessions === 1 ? '' : 's'}`), h('time', '', `last ${stamp(s.last)}`));
+        box.append(r);
     });
-    const bar = h('div', 'vctl');
-    if (here) {
-        const m = h('button', 'btn ghost' + (V.muted ? ' off' : '')); m.innerHTML = (V.muted ? ICON.micOff : ICON.mic) + (V.muted ? 'Unmute' : 'Mute'); m.onclick = toggleMute;
-        const d = h('button', 'btn ghost' + (V.deaf ? ' off' : '')); d.innerHTML = ICON.headphones + (V.deaf ? 'Undeafen' : 'Deafen'); d.onclick = toggleDeaf;
-        const l = h('button', 'btn primary'); l.textContent = 'Disconnect'; l.onclick = () => leaveVoice();
-        bar.append(m, d, l);
-    } else {
-        const j = h('button', 'btn primary', 'Join voice'); j.onclick = () => joinVoice(ch);
-        bar.append(j);
-    }
-    box.append(grid, bar);
+    if (!(S.me && S.me.plus)) return void hist.append(h('div', 'side-empty', 'Get Pratr Plus to see your own session history.'));
+    const hs = await post({ action: 'voice-history', id: S.server.id });
+    if (!hs.res.ok || !hs.data.sessions.length) return void hist.append(h('div', 'side-empty', 'No sessions yet.'));
+    hs.data.sessions.forEach(x => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(x.t)), h('span', '', `${x.cn || 'voice'} for ${fmtDur(x.d)}`)); hist.append(r); });
+}
+async function kickMember(m) {
+    if (!confirm(`Kick ${m.username} from ${S.server.name}? They can rejoin with an invite.`)) return;
+    const out = await post({ action: 'member-kick', id: S.server.id, to: m.id });
+    if (!out.res.ok) return toast(out.data.error || 'Could not kick.', true);
+    toast(`${m.username} was kicked.`); loadMembers();
 }
 
-async function joinVoice(ch) {
-    if (!S.server || !ch || ch.kind !== 'v' || V.joining) return;
-    if (V.on && V.chId === ch.id) return;
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return toast('Voice needs HTTPS and a browser with microphone support.', true);
-    V.joining = true;
-    try {
-        if (V.on) await leaveVoice(true);
-        let stream;
-        try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
-        catch { return toast('Microphone access was blocked. Allow it in your browser to join voice.', true); }
-        const ice = await post({ action: 'voice-ice' });
-        V.ice = (ice.data && ice.data.iceServers) || [{ urls: 'stun:stun.l.google.com:19302' }];
-        const out = await post({ action: 'voice-join', id: S.server.id, channelId: ch.id, mu: V.muted, df: V.deaf });
-        if (!out.res.ok) { stream.getTracks().forEach(t => t.stop()); return toast(out.data.error || 'Could not join voice.', true); }
-        Object.assign(V, { on: true, sid: S.server.id, chId: ch.id, name: ch.name, sname: S.server.name, stream, peers: new Map(), early: {}, cool: {}, joined: {} });
-        stream.getAudioTracks().forEach(t => { t.enabled = !V.muted; });
-        watchAudio(S.me.id, stream);
-        S.voice[ch.id] = out.data.peers || [];
-        clearInterval(V.timer); clearInterval(V.spTimer);
-        V.timer = setInterval(voiceSync, 1000);
-        V.spTimer = setInterval(tickSpeak, 120);
-        refreshVoiceUI(true);
-        voiceSync();
-    } finally { V.joining = false; }
+/* ---------- reactions ---------- */
+const QUICK = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉', '👀', '💯'];
+async function react(m, e) {
+    const out = await post({ action: 'react', id: m.id, text: e });
+    if (!out.res.ok) return toast(out.data.error || 'Could not react.', true);
+    S.sig = ''; loadMessages(false);
 }
-
-async function leaveVoice(quiet) {
-    if (!V.on) return;
-    V.on = false;
-    clearInterval(V.timer); clearInterval(V.spTimer);
-    [...V.peers.keys()].forEach(dropPeer);
-    V.watch.forEach(w => { try { w.src.disconnect(); } catch {} });
-    V.watch.clear(); V.speak = new Set();
-    if (V.stream) V.stream.getTracks().forEach(t => t.stop());
-    V.stream = null;
-    if (S.me && S.voice[V.chId]) S.voice[V.chId] = S.voice[V.chId].filter(p => p.id !== S.me.id);
-    post({ action: 'voice-leave' });
-    refreshVoiceUI(true);
+function reactRow(m) {
+    const d = h('div', 'rxs');
+    m.rx.forEach(r => { const b = h('button', 'rx' + (r.me ? ' me' : ''), `${r.e} ${r.n}`); b.type = 'button'; b.onclick = () => react(m, r.e); d.append(b); });
+    return d;
 }
-
-function applyAudio() {
-    if (V.stream) V.stream.getAudioTracks().forEach(t => { t.enabled = !V.muted; });
-    V.peers.forEach(r => { if (r.audio) r.audio.muted = V.deaf; });
-    const me = (S.voice[V.chId] || []).find(p => S.me && p.id === S.me.id);
-    if (me) { me.mu = V.muted; me.df = V.deaf; }
-    refreshVoiceUI();
-    voiceSync();
-}
-function toggleMute() { if (V.deaf) { V.deaf = false; V.muted = false; } else V.muted = !V.muted; applyAudio(); }
-function toggleDeaf() { if (V.deaf) { V.deaf = false; V.muted = V.mutedBefore || false; } else { V.mutedBefore = V.muted; V.deaf = true; V.muted = true; } applyAudio(); }
-$('vb-mute').onclick = toggleMute;
-$('vb-deaf').onclick = toggleDeaf;
-$('vb-leave').onclick = () => leaveVoice();
-
-async function voiceSync() {
-    if (!V.on || V.busy) return;
-    V.busy = true;
-    let out;
-    try { out = await post({ action: 'voice-sync', mu: V.muted, df: V.deaf }); } finally { V.busy = false; }
-    if (!V.on) return;
-    if (!out.res.ok) {
-        if (out.res.status === 404) { toast('Disconnected from voice.', true); leaveVoice(true); }
-        return;
-    }
-    const peers = out.data.peers || [], myId = S.me.id;
-    S.voice[V.chId] = peers;
-    const ids = new Set(peers.map(p => p.id));
-    peers.forEach(p => { if (V.joined[p.id] && V.joined[p.id] !== p.j) dropPeer(p.id); V.joined[p.id] = p.j; }); // they left and rejoined
-    [...V.peers.keys()].forEach(id => { if (!ids.has(id)) dropPeer(id); });
-    for (const s of out.data.signals || []) { try { await onSignal(s.from, s.sig); } catch (e) { console.warn('signal', e); } }
-    for (const p of peers) {
-        if (p.id === myId || V.peers.has(p.id) || myId > p.id || (V.cool[p.id] || 0) > Date.now()) continue; // lower id makes the offer
-        makePeer(p.id);
-        try { await offerTo(p.id); } catch (e) { console.warn('offer', e); dropPeer(p.id); }
-    }
-    refreshVoiceUI();
-}
-
-function sendSig(to, sig) { post({ action: 'voice-signal', to, sig: JSON.stringify(sig) }); }
-function makePeer(id) {
-    const pc = new RTCPeerConnection({ iceServers: V.ice }), rec = { pc, q: [], ready: false, audio: null };
-    V.peers.set(id, rec);
-    V.stream.getTracks().forEach(t => pc.addTrack(t, V.stream));
-    pc.onicecandidate = (e) => { if (e.candidate && V.peers.get(id) === rec) sendSig(id, { t: 'c', c: e.candidate }); };
-    pc.ontrack = (e) => {
-        const st = e.streams[0];
-        if (!st) return;
-        if (!rec.audio) { rec.audio = new Audio(); rec.audio.autoplay = true; }
-        rec.audio.srcObject = st; rec.audio.muted = V.deaf;
-        rec.audio.play().catch(() => {});
-        watchAudio(id, st);
+function reactTools(m) {
+    const t = h('div', 'msg-tools'), b = h('button', 'icon-btn');
+    b.type = 'button'; b.innerHTML = ICON.smile; b.title = 'Add reaction';
+    b.onclick = (ev) => {
+        ev.stopPropagation();
+        document.querySelectorAll('.rx-pop').forEach(x => x.remove());
+        const p = h('div', 'rx-pop');
+        QUICK.forEach(e => { const x = h('button', '', e); x.type = 'button'; x.onclick = () => { p.remove(); react(m, e); }; p.append(x); });
+        t.append(p);
     };
-    pc.onconnectionstatechange = () => {
-        if (pc.connectionState === 'failed' && V.peers.get(id) === rec) { V.cool[id] = Date.now() + 5000; dropPeer(id); }
-    };
-    return rec;
+    t.append(b);
+    return t;
 }
-async function offerTo(id) {
-    const rec = V.peers.get(id);
-    const o = await rec.pc.createOffer();
-    await rec.pc.setLocalDescription(o);
-    sendSig(id, { t: 'o', s: rec.pc.localDescription });
-}
-function flushIce(rec) { rec.ready = true; rec.q.splice(0).forEach(c => rec.pc.addIceCandidate(c).catch(() => {})); }
-async function onSignal(from, raw) {
-    let m; try { m = JSON.parse(raw); } catch { return; }
-    if (m.t === 'o') {
-        dropPeer(from);
-        const rec = makePeer(from);
-        rec.q.push(...(V.early[from] || [])); delete V.early[from];
-        await rec.pc.setRemoteDescription(m.s);
-        flushIce(rec);
-        const a = await rec.pc.createAnswer();
-        await rec.pc.setLocalDescription(a);
-        sendSig(from, { t: 'a', s: rec.pc.localDescription });
-    } else if (m.t === 'a') {
-        const rec = V.peers.get(from);
-        if (!rec || rec.pc.signalingState !== 'have-local-offer') return;
-        await rec.pc.setRemoteDescription(m.s);
-        flushIce(rec);
-    } else if (m.t === 'c') {
-        const rec = V.peers.get(from);
-        if (rec && rec.ready) rec.pc.addIceCandidate(m.c).catch(() => {});
-        else if (rec) rec.q.push(m.c);
-        else (V.early[from] = V.early[from] || []).push(m.c);
-    }
-}
-function dropPeer(id) {
-    const rec = V.peers.get(id);
-    if (rec) { try { rec.pc.close(); } catch {} if (rec.audio) { rec.audio.srcObject = null; } V.peers.delete(id); }
-    const w = V.watch.get(id);
-    if (w && id !== (S.me && S.me.id)) { try { w.src.disconnect(); } catch {} V.watch.delete(id); }
-}
+document.addEventListener('click', () => document.querySelectorAll('.rx-pop').forEach(x => x.remove()));
 
-/* speaking indicator: an analyser per stream, no output connection so nothing is played twice */
-function watchAudio(id, stream) {
-    try {
-        V.ctx = V.ctx || new (window.AudioContext || window.webkitAudioContext)();
-        if (V.ctx.state === 'suspended') V.ctx.resume().catch(() => {});
-        const old = V.watch.get(id); if (old) { try { old.src.disconnect(); } catch {} }
-        const src = V.ctx.createMediaStreamSource(stream), an = V.ctx.createAnalyser();
-        an.fftSize = 512; src.connect(an);
-        V.watch.set(id, { src, an, buf: new Uint8Array(an.fftSize) });
-    } catch {}
-}
-function tickSpeak() {
-    const now = new Set();
-    V.watch.forEach((w, id) => {
-        w.an.getByteTimeDomainData(w.buf);
-        let peak = 0; for (const v of w.buf) peak = Math.max(peak, Math.abs(v - 128));
-        if (peak > 10 && !(S.me && id === S.me.id && V.muted)) now.add(id);
+/* ---------- security: sessions and password ---------- */
+async function openSecurity() {
+    openModal('modal-sec');
+    $('sec-msg').textContent = ''; $('sec-old').value = ''; $('sec-new').value = '';
+    const sb = $('sec-sessions'), hb = $('sec-history');
+    sb.textContent = 'Loading…'; hb.textContent = '';
+    const out = await post({ action: 'security' });
+    sb.textContent = '';
+    if (!out.res.ok) return void sb.append(h('div', 'side-empty', out.data.error || 'Could not load.'));
+    out.data.sessions.forEach(s => {
+        const r = h('div', 'logrow');
+        const where = [s.ip, s.place].filter(Boolean).join(' · ') || 'unknown location';
+        r.append(h('time', '', stamp(s.ls)), h('span', '', `${s.device} — ${where}${s.lastIp && s.lastIp !== s.ip ? ` (now ${s.lastIp})` : ''}, signed in ${stamp(s.t)}${s.current ? ' · THIS DEVICE' : ''}`));
+        if (!s.current) { const b = h('button', 'btn ghost', 'Sign out'); b.type = 'button'; b.onclick = async () => { await post({ action: 'session-revoke', id: s.id }); openSecurity(); }; r.append(b); }
+        sb.append(r);
     });
-    if (now.size !== V.speak.size || [...now].some(i => !V.speak.has(i))) {
-        V.speak = now;
-        document.querySelectorAll('[data-vu]').forEach(e => e.classList.toggle('speaking', now.has(Number(e.dataset.vu))));
-    }
+    if (!out.data.history.length) hb.append(h('div', 'side-empty', 'Nothing yet.'));
+    out.data.history.forEach(l => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(l.t)), h('span', '', logText({ ...l, an: 'You' }))); hb.append(r); });
 }
-window.addEventListener('pagehide', () => {
-    if (V.on && S.token) { try { fetch('/api/auth', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${S.token}` }, body: JSON.stringify({ action: 'voice-leave' }) }); } catch {} }
-});
+$('sec-btn').onclick = openSecurity;
+$('sec-others').onclick = async () => { await post({ action: 'sessions-revoke-others' }); toast('Signed out everywhere else.'); openSecurity(); };
+$('sec-pw').onclick = async () => {
+    const out = await post({ action: 'password-change', password: $('sec-old').value, npw: $('sec-new').value });
+    $('sec-msg').style.color = out.res.ok ? 'var(--bone)' : '';
+    $('sec-msg').textContent = out.res.ok ? 'Password changed. Other devices were signed out.' : (out.data.error || 'Could not change password.');
+    if (out.res.ok) { $('sec-old').value = ''; $('sec-new').value = ''; }
+};
+
+/* ---------- unread / ping tracking (no per-message alerts; only pings badge, servers only) ---------- */
+S.unread = { channels: {}, dms: {} };
+async function pollUnread() {
+    if (!S.token) return;
+    const out = await post({ action: 'unreads' });
+    if (!out.res.ok) return;
+    S.unread = out.data;
+    renderSide();
+}
+function markRead() {
+    if (S.view === 'server' && S.server && S.channelId != null) {
+        delete S.unread.channels[S.channelId];
+        post({ action: 'mark-read', kind: 'server', id: S.server.id, channelId: S.channelId, lastId: S.maxId[curKey()] || 0 });
+    } else if (S.view === 'dm' && S.dm) {
+        delete S.unread.dms[S.dm.id];
+        post({ action: 'mark-read', kind: 'dm', id: S.dm.id, lastId: S.maxId[curKey()] || 0 });
+    }
+    renderSide();
+}
 
 /* ---------- start ---------- */
 setAuthMode(true);
