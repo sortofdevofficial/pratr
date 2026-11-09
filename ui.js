@@ -13,8 +13,10 @@ function renderRail() {
     S.servers.forEach(s => {
         const b = h('button', 'rail-btn' + (S.server && S.server.id === s.id ? ' active' : ''), s.icon ? '' : ini(s.name));
         if (s.icon) b.style.background = bg(s.icon);
-        b.title = s.name;
-        b._ctx = () => [...(s.owner === S.me?.id ? [['Server settings', () => openServer(s.id).then(openServerSettings)]] : []), ['Copy server link', () => copy(location.origin + '/channels/' + s.id)], ['Copy server name', () => copy(s.name)], ...idItem('server', s.id)];
+        if (s.accent) b.style.boxShadow = `inset 0 0 0 2px ${s.accent}`;
+        if (s.boosts) { const star = h('i', 'rail-boost', '✦'); star.title = `${s.boosts} boosts`; b.append(star); }
+        b.title = s.name + (s.boosts ? ` · ${s.boosts} boosts` : '');
+        b._ctx = () => [...(s.owner === S.me?.id ? [['Server settings', () => openServer(s.id).then(openServerSettings)]] : []), ['Boosts & perks', () => { openServer(s.id).then(openBoosts); }], ['Copy server link', () => copy(location.origin + '/channels/' + s.id)], ['Copy server name', () => copy(s.name)], ...idItem('server', s.id)];
         b.onclick = () => openServer(s.id);
         box.append(b);
     });
@@ -22,7 +24,17 @@ function renderRail() {
 
 function renderSide() {
     const server = S.view === 'server' && S.server;
-    $('side-title').textContent = server ? S.server.name : S.view === 'discover' ? 'Discover' : 'Home';
+    const title = $('side-title');
+    title.textContent = server ? S.server.name : S.view === 'discover' ? 'Discover' : 'Home';
+    const accent = server ? S.server.accent || '' : '';
+    title.style.background = accent ? `linear-gradient(90deg, ${accent}, ${accent})` : '';
+    const chip = $('srv-boosts');
+    chip.classList.toggle('hidden', !server || !(S.server.boosts > 0));
+    if (server && S.server.boosts > 0) {
+        chip.textContent = `✦ ${S.server.boosts}`;
+        chip.title = `${S.server.boosts} boosts · ${S.server.tier || 0} perk tiers`;
+        chip.onclick = openBoosts;
+    }
     $('server-menu-btn').classList.toggle('hidden', !server);
     $('home-list').classList.toggle('hidden', !!server);
     $('server-list').classList.toggle('hidden', !server);
@@ -144,11 +156,13 @@ function renderMain() {
     if (isServer) {
         icon.innerHTML = ch && ch.kind === 'v' ? ICON.speaker : ICON.hash;
         $('chat-name').textContent = ch ? ch.name : S.server.name;
+        $('chat-name').style.color = S.server.accent || '';
         $('chat-sub').textContent = ch ? S.server.name : '';
     } else {
         const n = S.dm.username || S.dm.email;
         icon.append(avatar(n, 'sm', S.dm.avatar));
         $('chat-name').textContent = n;
+        $('chat-name').style.color = '';
         $('chat-sub').textContent = '';
     }
     $('invite-btn').classList.toggle('hidden', !isServer);
@@ -161,6 +175,8 @@ function renderMain() {
 
     const none = isServer && S.chLoaded && !ch;
     const isVoice = !!(ch && ch.kind === 'v');
+    const longOk = (S.me && S.me.plus) || (isServer && S.server && (S.server.perks || []).includes('longmsg'));
+    $('chat-input').maxLength = longOk ? 4000 : 2000;
     $('messages').classList.toggle('hidden', none || isVoice);
     $('composer-wrap').classList.toggle('hidden', isServer && (!ch || isVoice));
     $('voice-stage').classList.toggle('hidden', !isVoice);
@@ -444,6 +460,7 @@ $('server-menu').onclick = async (e) => {
     if (act === 'invite') openInvite();
     if (act === 'channel') openChannelModal();
     if (act === 'settings') openServerSettings();
+    if (act === 'boosts') openBoosts();
     if (act === 'audit') openAudit();
     if (act === 'vtime') openVoiceTime();
     if (act === 'leave' && S.server && confirm(`Leave ${S.server.name}?`)) {
@@ -455,15 +472,8 @@ $('server-menu').onclick = async (e) => {
 
 window.addEventListener('hashchange', () => { if (S.token && S.me) handleInvite(); });
 
-/* ---------- emoji picker (every Unicode emoji) ---------- */
+/* ---------- emoji picker (every Unicode emoji, drawn as images) ---------- */
 const pop = $('emoji-pop');
-// Emoji this device can't draw show up as empty boxes (they measure a different width), so hide those.
-const canDraw = (() => {
-    const c = document.createElement('canvas').getContext('2d');
-    c.font = '24px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
-    const ref = c.measureText('😀').width;
-    return (e) => Math.abs(c.measureText(e).width - ref) <= ref * 0.2;
-})();
 // Skin tones are generated from the base gestures/people instead of being stored one by one.
 const TONES = ['🏻', '🏼', '🏽', '🏾', '🏿'];
 const SKIN_BASE = '👋 🤚 🖐️ ✋ 🖖 🫱 🫲 🫳 🫴 🫵 🫷 🫸 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 🖕 👇 ☝️ 🫶 👍 👎 ✊ 👊 🤛 🤜 👏 🙌 👐 🤲 🤝 🙏 ✍️ 💅 🤳 💪 🦵 🦶 👂 👃 👶 🧒 👦 👧 🧑 👱 👨 🧔 👩 🧓 👴 👵 🙍 🙎 🙅 🙆 💁 🙋 🙇 🤦 🤷 🚶 🧍 🧎 🏃 💃 🕺 🧖 🧗 🏇 🏂 🏌️ 🏄 🚣 🏊 ⛹️ 🏋️ 🚴 🚵 🤸 🤼 🤽 🤾 🤹 🧘 🛀 🛌';
@@ -473,47 +483,102 @@ const flagsGroup = (window.EMOJI_GROUPS || []).find(g => g && g.n === 'Flags');
 if (flagsGroup) flagsGroup.e.split(' ').forEach(e => flagSet.add(e));
 const RECENT_KEY = 'emoji-recent';
 let recents = [];
-try { recents = JSON.parse(localStorage.getItem(RECENT_KEY)) || []; } catch { recents = []; }
+try { recents = (JSON.parse(localStorage.getItem(RECENT_KEY)) || []).filter(e => typeof e === 'string' && e); } catch { recents = []; }
 const SHORT = { 'Smileys & emotion': 'Smileys', 'People & body': 'People', 'Animals & nature': 'Nature', 'Food & drink': 'Food', 'Travel & places': 'Travel', 'Activities': 'Activity', 'Objects': 'Objects', 'Symbols': 'Symbols', 'Flags': 'Flags' };
+const GICON = { 'Recent': '🕘', 'Smileys & emotion': '😀', 'People & body': '👋', 'Animals & nature': '🐻', 'Food & drink': '🍔', 'Travel & places': '✈️', 'Activities': '⚽', 'Objects': '💡', 'Symbols': '❤️', 'Flags': '🏳️' };
 const EMOJI_GROUPS = [
-    { n: 'Recent', list: () => recents },
+    { n: 'Recent', icon: GICON.Recent, list: () => recents },
     ...(window.EMOJI_GROUPS || []).map(g => ({
-        n: g.n,
+        n: g.n, icon: GICON[g.n],
         list: () => g.n === 'People & body'
-            ? g.e.split(' ').concat(SKIN_BASE.split(' ').flatMap(b => TONES.map(t => b + t)))
+            ? [...new Set(g.e.split(' ').concat(SKIN_BASE.split(' ').flatMap(b => TONES.map(t => b + t))))]
             : g.n === 'Flags' ? [...flagSet] : g.e.split(' ')
     }))
 ];
+const head = h('div', 'emoji-head');
+const countEl = h('span', 'emoji-count', '');
+const searchEl = h('input', 'emoji-search');
+searchEl.type = 'search'; searchEl.placeholder = 'Search emoji'; searchEl.autocomplete = 'off'; searchEl.spellcheck = false;
+head.append(h('strong', '', 'Emoji'), countEl, searchEl);
 const tabs = h('div', 'emoji-tabs'), body = h('div', 'emoji-body');
-pop.append(tabs, body);
-let activeEmoji = 0;
+pop.textContent = '';
+pop.append(head, tabs, body);
+let activeEmoji = 0, emojiQuery = '', searchAll = null, searchResults = [];
+const groupCache = new Map();
+function groupList(i) {
+    const g = EMOJI_GROUPS[i];
+    if (g.n === 'Recent') return recents;
+    if (!groupCache.has(i)) groupCache.set(i, [...new Set(g.list())]);
+    return groupCache.get(i);
+}
+function allEmoji() {
+    if (searchAll) return searchAll;
+    const seen = new Set();
+    EMOJI_GROUPS.forEach((g, i) => { if (g.n !== 'Recent') groupList(i).forEach(e => seen.add(e)); });
+    return (searchAll = [...seen]);
+}
 function addRecent(e) {
-    recents = [e, ...recents.filter(x => x !== e)].slice(0, 32);
+    recents = [e, ...recents.filter(x => x !== e)].slice(0, 24);
     try { localStorage.setItem(RECENT_KEY, JSON.stringify(recents)); } catch {}
-    if (activeEmoji === 0) paintEmoji(0);
+    if (activeEmoji === 0 && !emojiQuery) paintBody();
 }
 function insertEmoji(e) {
     input.setRangeText(e, input.selectionStart, input.selectionEnd, 'end'); input.focus(); autosize(); addRecent(e);
 }
+function emojiCell(e) {
+    const b = h('button', 'emoji-cell');
+    b.type = 'button'; b.tabIndex = -1;
+    const name = emojiArt.nameOf(e);
+    b.title = name ? `${name} — ${e}` : e;
+    b.setAttribute('aria-label', name || e);
+    b.append(emojiArt.node(e, 'tile'));
+    b.onclick = () => insertEmoji(e);
+    return b;
+}
+function paintBody() {
+    body.textContent = '';
+    const q = emojiQuery;
+    const list = q ? searchResults : groupList(activeEmoji);
+    const title = q ? `Results for “${emojiQuery}”` : activeEmoji === 0 ? 'Recently used' : SHORT[EMOJI_GROUPS[activeEmoji].n] || EMOJI_GROUPS[activeEmoji].n;
+    countEl.textContent = list.length ? String(list.length) : '';
+    const sec = h('div', 'emoji-sec');
+    sec.append(h('span', '', title), h('small', '', list.length ? `${list.length}` : ''));
+    body.append(sec);
+    if (!list.length) {
+        body.append(h('div', 'side-empty', q ? 'No emoji match that search.' : 'Pick an emoji and it will show up here.'));
+        return;
+    }
+    const grid = h('div', 'emoji-grid');
+    list.forEach(e => grid.append(emojiCell(e)));
+    body.append(grid);
+}
 function paintEmoji(i) {
     activeEmoji = i;
     [...tabs.children].forEach((t, x) => t.classList.toggle('on', x === i));
-    body.textContent = '';
-    const list = EMOJI_GROUPS[i].list();
-    if (!list.length) return void body.append(h('div', 'side-empty', 'Pick an emoji and it will show up here.'));
-    const grid = h('div', 'emoji-grid');
-    // Every Unicode emoji stays in the picker. Ones the local font cannot draw are dimmed instead of hidden.
-    list.forEach(e => {
-        const b = h('button', canDraw(e) ? '' : 'no-glyph', e); b.type = 'button'; b.tabIndex = -1; b.title = e;
-        b.onclick = () => insertEmoji(e);
-        grid.append(b);
-    });
-    if (!grid.children.length) body.append(h('div', 'side-empty', 'No emoji here yet.'));
-    else body.append(grid);
+    paintBody();
 }
+function runSearch() {
+    const q = searchEl.value.trim().toLowerCase();
+    emojiQuery = q;
+    searchResults = q ? allEmoji().filter(e => emojiArt.words(e).includes(q)).slice(0, 500) : [];
+    if (!q) {
+        [...tabs.children].forEach((t, x) => t.classList.toggle('on', x === activeEmoji));
+    } else {
+        [...tabs.children].forEach(t => t.classList.remove('on'));
+    }
+    body.scrollTop = 0;
+    paintBody();
+}
+searchEl.addEventListener('input', runSearch);
+searchEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && emojiQuery && searchResults[0]) { e.preventDefault(); insertEmoji(searchResults[0]); }
+    if (e.key === 'Escape') { e.stopPropagation(); if (searchEl.value) { searchEl.value = ''; runSearch(); } else { pop.classList.add('hidden'); } }
+});
 EMOJI_GROUPS.forEach((g, i) => {
-    const t = h('button', 'emoji-tab' + (i === 0 ? ' on' : ''), SHORT[g.n] || g.n);
-    t.type = 'button'; t.tabIndex = -1; t.onclick = () => paintEmoji(i);
+    const t = h('button', 'emoji-tab' + (i === 0 ? ' on' : ''));
+    t.type = 'button'; t.tabIndex = -1; t.title = g.n; t.setAttribute('aria-label', g.n);
+    t.append(emojiArt.node(g.icon, 'tab-e'));
+    t.onclick = () => { searchEl.value = ''; emojiQuery = ''; paintEmoji(i); body.scrollTop = 0; };
     tabs.append(t);
 });
 paintEmoji(0);
@@ -614,6 +679,10 @@ function logText(l) {
         case 'friend_cancel': return `${a} cancelled a friend request to ${u}`;
         case 'status': return `${a} set their status to ${l.x}`;
         case 'plus_grant': return `${a} turned Pratr Plus ${l.x} for ${u}`;
+        case 'plus_expire': return `${a}’s Plus plan ended (${l.x})`;
+        case 'boost_grant': return `${a} received ${l.x}`;
+        case 'server_boost': return `${a} boosted the server: ${l.x}`;
+        case 'server_perk': return `${a} changed a server perk: ${l.x}`;
         case 'voice_leave': return `${a} left voice channel ${l.cn} after ${fmtDur(l.d)}`;
         default: return `${a}: ${l.ty}`;
     }
@@ -675,9 +744,8 @@ async function openVoiceTime() {
         r.append(h('b', '', `${i + 1}.`), h('span', '', `${s.username}${s.plus ? ' ✦' : ''} — ${fmtDur(s.seconds)} over ${s.sessions} session${s.sessions === 1 ? '' : 's'}`), h('time', '', `last ${stamp(s.last)}`));
         box.append(r);
     });
-    if (!(S.me && S.me.plus)) return void hist.append(h('div', 'side-empty', 'Get Pratr Plus to see your own session history.'));
     const hs = await post({ action: 'voice-history', id: S.server.id });
-    if (!hs.res.ok || !hs.data.sessions.length) return void hist.append(h('div', 'side-empty', 'No sessions yet.'));
+    if (!hs.res.ok || !hs.data.sessions.length) return void hist.append(h('div', 'side-empty', hs.res.ok ? 'No sessions yet.' : (hs.data.error || 'Could not load your sessions.')));
     hs.data.sessions.forEach(x => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(x.t)), h('span', '', `${x.cn || 'voice'} for ${fmtDur(x.d)}`)); hist.append(r); });
 }
 async function kickMember(m) {
@@ -686,6 +754,113 @@ async function kickMember(m) {
     if (!out.res.ok) return toast(out.data.error || 'Could not kick.', true);
     toast(`${m.username} was kicked.`); loadMembers();
 }
+
+/* ---------- boosts & perks ---------- */
+let boostData = null;
+async function openBoosts() {
+    if (!S.server) return;
+    $('boost-msg').textContent = '';
+    openModal('modal-boosts');
+    await loadBoosts();
+}
+async function loadBoosts() {
+    if (!S.server) return;
+    const sid = S.server.id;
+    const out = await post({ action: 'boost-info', id: sid });
+    if (!S.server || S.server.id !== sid) return;
+    if (!out.res.ok) { $('boost-sub').textContent = out.data.error || 'Could not load boosts.'; return; }
+    boostData = out.data;
+    paintBoosts();
+}
+function paintBoosts() {
+    const d = boostData;
+    if (!d) return;
+    $('boost-sub').textContent = `${d.server} · boosts are permanent and never expire`;
+    $('boost-count').textContent = String(d.boosts);
+    $('boost-tier').textContent = String(d.tier);
+    $('boost-mine').textContent = String(d.mine);
+    const locked = d.available.filter(p => p.at > d.boosts).sort((a, b) => a.at - b.at);
+    $('boost-next').textContent = !d.plus
+        ? 'Pratr Plus gives you 2 boosts every month. Boosts you already own are kept forever.'
+        : locked.length
+            ? `Next perk: ${locked[0].n} at ${locked[0].at} boosts — ${locked[0].at - d.boosts} more to go. You get +2 boosts every month${d.nextBoosts ? `, next on ${plusDate(d.nextBoosts)}` : ''}.`
+            : `Every perk is unlocked. You get +2 boosts every month${d.nextBoosts ? `, next on ${plusDate(d.nextBoosts)}` : ''}.`;
+    $('boost-1').disabled = d.mine < 1;
+    $('boost-2').disabled = d.mine < 2;
+    $('boost-1').textContent = 'Boost ×1';
+    $('boost-2').textContent = 'Boost ×2';
+    $('boost-1').title = $('boost-2').title = d.mine ? `${d.mine} available` : 'No boosts available';
+
+    const box = $('boost-perks');
+    box.textContent = '';
+    const on = new Set(d.perks || []), owner = d.owner === S.me?.id;
+    d.available.forEach(p => {
+        const unlocked = d.boosts >= p.at, active = on.has(p.k);
+        const row = h('div', 'perk-row' + (unlocked ? '' : ' locked') + (active ? ' on' : ''));
+        const info = h('div', 'perk-info');
+        info.append(h('strong', '', p.n), h('small', '', p.d));
+        const side = h('div', 'perk-side');
+        const tier = h('em', 'perk-tier', `${p.at} boost${p.at === 1 ? '' : 's'}`);
+        side.append(tier);
+        if (!unlocked) side.append(h('span', 'perk-lock', `${p.at - d.boosts} more`));
+        else if (owner) {
+            const btn = h('button', 'btn ghost sm', active ? 'Disable' : 'Enable');
+            btn.type = 'button';
+            btn.onclick = () => setPerk(p, !active, p.k === 'accent' ? (d.accent || ACCENTS[0]) : '');
+            side.append(btn);
+            if (p.k === 'accent') side.append(accentPicker(d.accent, active, (c) => setPerk(p, true, c)));
+        } else side.append(h('span', active ? 'perk-on' : 'perk-off', active ? 'Enabled' : 'Available'));
+        row.append(info, side);
+        box.append(row);
+    });
+
+    const hist = $('boost-hist');
+    hist.textContent = '';
+    if (!d.history.length) hist.append(h('div', 'side-empty', 'No boosts yet. Be the first to boost this server.'));
+    else d.history.forEach(x => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(x.t)), h('span', '', `Boosted by ${x.by}`)); hist.append(r); });
+
+    const grants = $('boost-grants');
+    grants.textContent = '';
+    if (!d.grants.length) grants.append(h('div', 'side-empty', 'Your +2 monthly boosts will be saved here.'));
+    else d.grants.forEach(x => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(x.t)), h('span', '', x.x || '+2 boosts')); grants.append(r); });
+}
+function accentPicker(current, active, pick) {
+    const box = h('div', 'accent-pick mini');
+    ACCENTS.forEach(c => {
+        const b = h('button', 'accent-swatch' + (active && current === c ? ' on' : ''));
+        b.type = 'button'; b.title = c; b.style.background = c;
+        b.onclick = () => pick(c);
+        box.append(b);
+    });
+    return box;
+}
+async function setPerk(p, on, colour) {
+    const out = await post({ action: 'server-perk', id: S.server.id, perk: p.k, on, colour: on ? (colour || '') : '' });
+    if (!out.res.ok) { $('boost-msg').textContent = out.data.error || 'Could not update the perk.'; return; }
+    $('boost-msg').textContent = '';
+    Object.assign(S.server, out.data.server);
+    await loadServers();
+    renderAll();
+    await loadBoosts();
+    toast(`${p.n} ${on ? 'enabled' : 'disabled'}.`);
+}
+async function spendBoosts(n) {
+    if (!S.server) return;
+    $('boost-msg').textContent = '';
+    const out = await post({ action: 'server-boost', id: S.server.id, count: n });
+    if (!out.res.ok) { $('boost-msg').textContent = out.data.error || 'Could not boost.'; return; }
+    $('boost-msg').style.color = 'var(--bone)';
+    $('boost-msg').textContent = `Nice — ${n} boost${n === 1 ? '' : 's'} added. This server now has ${out.data.boosts}.`;
+    if (S.server) { S.server.boosts = out.data.boosts; S.server.tier = out.data.tier; S.server.perks = out.data.perks; S.server.accent = out.data.accent; }
+    await refreshMe();
+    await loadServers();
+    renderAll();
+    await loadBoosts();
+    toast(`+${n} boost${n === 1 ? '' : 's'} applied.`);
+}
+$('boost-1').onclick = () => spendBoosts(1);
+$('boost-2').onclick = () => spendBoosts(2);
+$('boost-refresh').onclick = loadBoosts;
 
 /* ---------- reactions ---------- */
 const QUICK = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉', '👀', '💯'];
@@ -700,7 +875,7 @@ async function react(m, e) {
 }
 function reactRow(m) {
     const d = h('div', 'rxs');
-    m.rx.forEach(r => { const b = h('button', 'rx' + (r.me ? ' me' : ''), `${r.e} ${r.n}`); b.type = 'button'; b.onclick = () => react(m, r.e); d.append(b); });
+    m.rx.forEach(r => { const b = h('button', 'rx' + (r.me ? ' me' : '')); b.type = 'button'; b.append(emojiArt.node(r.e, 'rx-e'), h('span', 'rx-n', String(r.n))); b.onclick = () => react(m, r.e); d.append(b); });
     return d;
 }
 function reactTools(m) {
@@ -710,7 +885,7 @@ function reactTools(m) {
         ev.stopPropagation();
         document.querySelectorAll('.rx-pop').forEach(x => x.remove());
         const p = h('div', 'rx-pop');
-        QUICK.forEach(e => { const x = h('button', '', e); x.type = 'button'; x.onclick = () => { p.remove(); react(m, e); }; p.append(x); });
+        QUICK.forEach(e => { const x = h('button', ''); x.type = 'button'; x.append(emojiArt.node(e, 'rx-e')); x.onclick = () => { p.remove(); react(m, e); }; p.append(x); });
         t.append(p);
     };
     t.append(b);

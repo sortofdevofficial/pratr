@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b0b0f">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://res.cloudinary.com; connect-src 'self' https://api.cloudinary.com; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://res.cloudinary.com https://cdn.jsdelivr.net; connect-src 'self' https://api.cloudinary.com; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'">
 <link rel="icon" type="image/png" href="/favicon.png?v=3">
 <link rel="stylesheet" href="/style.css">
 <title>pratr</title>
@@ -57,6 +57,7 @@
     <aside class="side">
       <header class="side-head" id="side-head">
         <h2 id="side-title">Home</h2>
+        <span class="srv-boosts hidden" id="srv-boosts" title="Server boosts"></span>
         <button class="icon-btn hidden" id="server-menu-btn" title="Server menu" aria-label="Server menu"><svg viewBox="0 0 24 24" class="ic"><path d="m6 9 6 6 6-6"/></svg></button>
       </header>
       <div class="side-body">
@@ -176,6 +177,7 @@
   <button data-act="invite"><svg viewBox="0 0 24 24" class="ic"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>Invite people</button>
   <button data-act="channel" id="menu-channel"><svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg>Create channel</button>
   <button data-act="settings" id="menu-settings"><svg viewBox="0 0 24 24" class="ic"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Server settings</button>
+  <button data-act="boosts" id="menu-boosts"><svg viewBox="0 0 24 24" class="ic"><path d="M13 2 4.5 13H11l-1 9 8.5-11H12l1-9z"/></svg>Boosts &amp; perks</button>
   <button data-act="vtime" id="menu-vtime"><svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Voice time</button>
   <button data-act="audit" id="menu-audit"><svg viewBox="0 0 24 24" class="ic"><path d="M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h9"/></svg>Audit log</button>
   <button data-act="leave" class="danger" id="menu-leave"><svg viewBox="0 0 24 24" class="ic"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>Leave server</button>
@@ -283,15 +285,40 @@
 <div class="modal hidden" id="modal-plus" role="dialog" aria-modal="true">
   <div class="modal-card">
     <button class="modal-x" data-close aria-label="Close">×</button>
-    <h2>Pratr Plus <span class="plus-price">$1</span></h2>
-    <p class="hint">A small way to support pratr and stand out.</p>
-    <ul class="perks"><li>✦ PLUS badge next to your name</li><li>Gold username in chats</li><li>✦ marker in server member lists</li><li>Gold ring around your avatar in chats</li><li>Messages up to 4000 characters (instead of 2000)</li><li>Your own voice session history</li><li>Custom status shown next to your name</li><li>Accent colour for your name and avatar ring</li><li>400-character bio (instead of 160)</li></ul>
+    <h2>Pratr Plus <span class="plus-price">$1 <small>/ month</small></span></h2>
+    <p class="hint">A one-month plan. Perks work while it is active, and they come back when you renew. Your boosts and history are kept forever.</p>
+    <ul class="perks"><li>✦ PLUS badge next to your name</li><li>Gold username in chats</li><li>✦ marker in server member lists</li><li>Gold ring around your avatar in chats</li><li>Messages up to 4000 characters (instead of 2000)</li><li>Your own voice session history</li><li>Custom status shown next to your name</li><li>Accent colour for your name and avatar ring</li><li>400-character bio (instead of 160)</li><li><b>2 server boosts every month</b> — they never expire</li></ul>
+    <div class="plus-plan" id="plus-plan"></div>
     <p class="hint" id="plus-state"></p>
     <button class="btn primary hidden" id="plus-customize" type="button">Customise my Plus profile</button>
-    <div id="plus-buy"><p class="hint">To buy, join our Headquarters server and tell us you want Pratr Plus. We will activate it on your account there.</p><button class="btn primary" id="plus-buy-btn" type="button">Open Headquarters</button></div>
+    <div id="plus-buy"><p class="hint">To buy, join our Headquarters server and tell us you want Pratr Plus. We will activate one month on your account there.</p><button class="btn primary" id="plus-buy-btn" type="button">Open Headquarters</button></div>
     <div id="plus-admin" class="hidden"><div class="sec-title"><span>Admin</span></div>
-      <div class="inline-form"><input id="plus-user" placeholder="Username or email" autocomplete="off"><button class="btn primary" id="plus-on" type="button">Grant</button><button class="btn ghost" id="plus-off" type="button">Revoke</button><button class="btn ghost" id="plus-act" type="button">Activity</button></div><div class="logbox hidden" id="plus-log" style="margin-top:12px"></div></div>
+      <div class="inline-form"><input id="plus-user" placeholder="Username or email" autocomplete="off"><input id="plus-days" type="number" min="1" max="366" value="30" title="Days" aria-label="Days"><button class="btn primary" id="plus-on" type="button">Grant</button><button class="btn ghost" id="plus-off" type="button">Revoke</button><button class="btn ghost" id="plus-act" type="button">Activity</button></div><div class="logbox hidden" id="plus-log" style="margin-top:12px"></div></div>
+    <div class="sec-title"><span>Plan &amp; boost history</span></div>
+    <div class="logbox" id="plus-history"></div>
     <p class="msg-err" id="plus-msg"></p>
+  </div>
+</div>
+
+<div class="modal hidden" id="modal-boosts" role="dialog" aria-modal="true">
+  <div class="modal-card wide">
+    <button class="modal-x" data-close aria-label="Close">×</button>
+    <h2>Boosts &amp; perks</h2>
+    <p class="hint" id="boost-sub">Boosts are permanent. Every boost this server receives stays counted forever.</p>
+    <div class="boost-stats">
+      <div><b id="boost-count">0</b><span>boosts</span></div>
+      <div><b id="boost-tier">0</b><span>perk tiers</span></div>
+      <div><b id="boost-mine">0</b><span>yours</span></div>
+    </div>
+    <p class="hint" id="boost-next"></p>
+    <div class="boost-actions"><button class="btn primary" id="boost-1" type="button">Boost ×1</button><button class="btn ghost" id="boost-2" type="button">Boost ×2</button><button class="btn ghost" id="boost-refresh" type="button">Refresh</button></div>
+    <div class="sec-title"><span>Server perks</span></div>
+    <div class="boost-perks" id="boost-perks"></div>
+    <div class="sec-title"><span>Recent boosts</span></div>
+    <div class="logbox" id="boost-hist"></div>
+    <div class="sec-title"><span>Your monthly boosts</span></div>
+    <div class="logbox" id="boost-grants"></div>
+    <p class="msg-err" id="boost-msg"></p>
   </div>
 </div>
 
@@ -312,7 +339,8 @@
     <h2>Voice time</h2><p class="hint">Total time spent in this server's voice channels.</p>
     <p class="hint" id="vtime-me"></p>
     <div class="logbox" id="vtime-list"></div>
-    <div class="sec-title"><span>Your recent sessions <em class="badge plus">✦ Plus</em></span></div>
+    <div class="sec-title"><span>Your recent sessions</span></div>
+    <p class="hint">Every session is saved for your account, whether or not you have Plus.</p>
     <div class="logbox" id="vhist-list"></div>
   </div>
 </div>
@@ -320,6 +348,8 @@
 <div class="menu hidden" id="ctx-menu"></div>
 <div class="toast-stack" id="toast-stack"></div>
 <script src="/emoji-data.js"></script>
+<script src="/emoji-names.js"></script>
+<script src="/emoji-img.js"></script>
 <script src="/app.js"></script>
 <script src="/ui.js"></script>
 <script src="/voice.js"></script>

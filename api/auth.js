@@ -1,6 +1,32 @@
 // The handler lives here; models, helpers and connection setup live in ../lib/core.js.
-const { mongoose, bcrypt, jwt, crypto, nowSeconds, onlineCut, statusOf, clientIp, geoOf, deviceOf, clientInfo, infoText, hit, DUMMY_HASH, CURRENT_SCHEMA_VERSION, ensureSchemaVersion, withV, connectDB, User, Pending, Session, Msg, Server, Channel, Voice, VStat, Signal, Log, Read, Meta, Friend, Invite, lg, VOICE_LIVE, vLive, endVoice, reapMyVoice, reapVoice, readKey, voiceRoom, shortCode, findInvite, sendOtp, nextId, createWithId, isAdmin, areFriends, isMember, srv, okImg } = require('../lib/core');
+const { mongoose, bcrypt, jwt, crypto, nowSeconds, onlineCut, statusOf, clientIp, geoOf, deviceOf, clientInfo, infoText, hit, DUMMY_HASH, CURRENT_SCHEMA_VERSION, ensureSchemaVersion, withV, connectDB, User, Pending, Session, Msg, Server, Channel, Voice, VStat, Signal, Log, Read, Meta, Friend, Invite, Boost, lg, VOICE_LIVE, vLive, endVoice, reapMyVoice, reapVoice, readKey, voiceRoom, shortCode, findInvite, sendOtp, nextId, createWithId, isAdmin, areFriends, isMember, srv, okImg, MONTH, plusOn, BOOST_PERKS, boostTier } = require('../lib/core');
 const ACCENTS = ['#ffd36b', '#ff8fa3', '#7ee2b8', '#7cc4ff', '#b99bff', '#ffab6b', '#5ee0d6', '#f0e9db'];
+
+// Plus plans end on their own. Expiring and the monthly 2-boost grant are lazy: they run on the next
+// authenticated request, so no cron is needed. The cache keeps that to one extra read per user per minute.
+const plusChecked = new Map();
+async function refreshPlus(uid) {
+  const now = nowSeconds();
+  const u = await User.findById(uid).select('pl pe ng ub').lean();
+  if (!u) return;
+  if (u.pl && u.pe && u.pe <= now) {
+    const r = await User.updateOne({ _id: uid, pl: true, pe: { $lte: now } }, { $set: { pl: false, ng: 0 } });
+    if (r.modifiedCount) await lg(0, 'plus_expire', uid, { x: `plan ended ${new Date(u.pe * 1000).toISOString().slice(0, 10)}` });
+    return;
+  }
+  if (plusOn(u, now) && u.ng && u.ng <= now) {
+    const months = Math.min(24, Math.floor((now - u.ng) / MONTH) + 1);
+    // Optimistic guard: only the request that still sees this ng value grants, so two tabs cannot double-credit.
+    const r = await User.updateOne({ _id: uid, pl: true, ng: u.ng }, { $inc: { ub: 2 * months }, $set: { ng: u.ng + months * MONTH } });
+    if (r.modifiedCount) await lg(0, 'boost_grant', uid, { x: `+${2 * months} boosts (${months} month${months === 1 ? '' : 's'})` });
+  }
+}
+async function refreshPlusMaybe(uid) {
+  const last = plusChecked.get(uid) || 0;
+  if (Date.now() - last < 60000) return;
+  plusChecked.set(uid, Date.now());
+  try { await refreshPlus(uid); } catch (e) { console.error('[plus]', e); }
+}
 
 module.exports = async function handler(req, res) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -15,7 +41,7 @@ module.exports = async function handler(req, res) {
     if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16) return res.status(500).json({ error: 'Server is not configured.' });
     await connectDB();
     const tooMany = () => res.status(429).json({ error: 'Too many attempts. Please wait a bit and try again.' });
-    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q, status, ck, to, sig, mu, df, on, npw, lastId, afterId, st, ac } = body;
+    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q, status, ck, to, sig, mu, df, on, npw, lastId, afterId, st, ac, days, count, perk, colour } = body;
 
     if (action === 'register') {
       const key = String(email || '').trim().toLowerCase();
@@ -69,6 +95,7 @@ module.exports = async function handler(req, res) {
     const sess = auth ? await Session.findById(`${auth.userId}:${auth.sid}`).select('ls s').lean() : null;
     if (!sess) return res.status(401).json({ error: 'Please log in again.' });
     if ((sess.ls || 0) < nowSeconds() - 60) await Session.updateOne({ _id: `${auth.userId}:${auth.sid}` }, { ls: nowSeconds(), li: clientIp(req), c: geoOf(req) });
+    await refreshPlusMaybe(auth.userId);
 
     if (action === 'logout') {
       await Session.deleteOne({ _id: `${auth.userId}:${auth.sid}` });
@@ -79,8 +106,9 @@ module.exports = async function handler(req, res) {
     if (action === 'me') {
       await reapMyVoice(auth.userId);
       await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
-      const me = await User.findById(auth.userId).select('e n av b ps pl st ac vt mc').lean();
-      return res.status(200).json({ id: me._id, email: me.e, username: me.n, avatar: me.av || '', bio: me.b || '', status: me.ps || 'online', plus: !!me.pl, statusText: me.st || '', accent: me.ac || '', admin: isAdmin(me.e), voice: me.vt || 0, msgs: me.mc || 0 });
+      const me = await User.findById(auth.userId).select('e n av b ps pl pe ng ub st ac vt mc').lean();
+      const plus = plusOn(me);
+      return res.status(200).json({ id: me._id, email: me.e, username: me.n, avatar: me.av || '', bio: plus ? (me.b || '') : (me.b || '').slice(0, 160), status: me.ps || 'online', plus, plusUntil: me.pe || 0, boosts: me.ub || 0, nextBoosts: plus ? (me.ng || 0) : 0, statusText: plus ? (me.st || '') : '', accent: plus ? (me.ac || '') : '', admin: isAdmin(me.e), voice: me.vt || 0, msgs: me.mc || 0 });
     }
 
     if (action === 'presence-set') {
@@ -95,8 +123,8 @@ module.exports = async function handler(req, res) {
       if (!uname) return res.status(400).json({ error: 'Username required.' });
       if (await User.exists({ n: uname, _id: { $ne: auth.userId } })) return res.status(400).json({ error: 'Username taken.' });
       if (!okImg(avatar ?? '')) return res.status(400).json({ error: 'Invalid image.' });
-      const old = await User.findById(auth.userId).select('n av b pl st ac').lean();
-      const plus = !!old.pl;
+      const old = await User.findById(auth.userId).select('n av b pl pe st ac').lean();
+      const plus = plusOn(old);
       const cleanBio = String(bio || '').trim().slice(0, plus ? 400 : 160);
       // Status and accent are Plus-only; for everyone else the stored values (if any) stay untouched.
       const cleanSt = plus ? String(st || '').trim().slice(0, 60) : (old.st || '');
@@ -120,7 +148,10 @@ module.exports = async function handler(req, res) {
       const cleanName = String(name || '').trim().slice(0, 60);
       if (!cleanName) return res.status(400).json({ error: 'Server name required.' });
       if (!okImg(icon ?? '')) return res.status(400).json({ error: 'Invalid image.' });
-      const server = await Server.findOneAndUpdate({ _id: Number(id), o: auth.userId }, { n: cleanName, ic: icon || '', ds: String(desc || '').trim().slice(0, 120), pub: !!pub }, { new: true }).lean();
+      const old = await Server.findOne({ _id: Number(id), o: auth.userId }).select('bp').lean();
+      if (!old) return res.status(403).json({ error: 'Only the owner can edit the server.' });
+      const descLimit = (old.bp || []).includes('desc') ? 300 : 120; // boost perk
+      const server = await Server.findOneAndUpdate({ _id: Number(id), o: auth.userId }, { n: cleanName, ic: icon || '', ds: String(desc || '').trim().slice(0, descLimit), pub: !!pub }, { new: true }).lean();
       if (!server) return res.status(403).json({ error: 'Only the owner can edit the server.' });
       await lg(server._id, 'server_update', auth.userId, { x: `${cleanName}${pub ? ' (listed in Discover)' : ''}` });
       return res.status(200).json({ server: srv(server) });
@@ -134,7 +165,7 @@ module.exports = async function handler(req, res) {
       if (other._id === auth.userId) return res.status(400).json({ error: "You can't add yourself." });
       const [x, y] = [auth.userId, other._id].sort((p, q2) => p - q2);
       const key = `${x}:${y}`;
-      const pair = (s) => ({ id: other._id, username: other.n, avatar: other.av || '', bio: other.b || '', status: statusOf(other), plus: !!other.pl, statusText: other.st || '', accent: other.ac || '', voice: other.vt || 0, msgs: other.mc || 0, s });
+      const pair = (s) => ({ id: other._id, username: other.n, avatar: other.av || '', bio: plusOn(other) ? (other.b || '') : (other.b || '').slice(0, 160), status: statusOf(other), plus: plusOn(other), statusText: plusOn(other) ? (other.st || '') : '', accent: plusOn(other) ? (other.ac || '') : '', voice: other.vt || 0, msgs: other.mc || 0, s });
       const cur = await Friend.findById(key).lean();
       if (cur && cur.s === 'a') return res.status(400).json({ error: 'You are already friends.' });
       if (cur && cur.s === 'p') {
@@ -156,13 +187,14 @@ module.exports = async function handler(req, res) {
       const key = `${x}:${y}`;
       const doc = await Friend.findById(key).lean();
       if (!doc || doc.s !== 'p') return res.status(404).json({ error: 'No pending request.' });
-      const other = await User.findById(uid).select('n av b ls ps pl st ac vt mc').lean();
+      const other = await User.findById(uid).select('n av b ls ps pl pe st ac vt mc').lean();
       if (!other) return res.status(404).json({ error: 'User not found.' });
       if (action === 'friend-accept') {
         if (doc.by === auth.userId) return res.status(403).json({ error: 'That request is yours — waiting for them.' });
         await Friend.updateOne({ _id: key }, { $set: { s: 'a', r: nowSeconds() } });
         await lg(0, 'friend_accept', auth.userId, { u: uid });
-        return res.status(200).json({ friend: { id: other._id, username: other.n, avatar: other.av || '', bio: other.b || '', status: statusOf(other), plus: !!other.pl, statusText: other.st || '', accent: other.ac || '', voice: other.vt || 0, msgs: other.mc || 0 } });
+        const plus = plusOn(other);
+        return res.status(200).json({ friend: { id: other._id, username: other.n, avatar: other.av || '', bio: plus ? (other.b || '') : (other.b || '').slice(0, 160), status: statusOf(other), plus, statusText: plus ? (other.st || '') : '', accent: plus ? (other.ac || '') : '', voice: other.vt || 0, msgs: other.mc || 0 } });
       }
       // Denying an incoming request and cancelling your own outgoing one are the same stored event, logged differently.
       await Friend.updateOne({ _id: key }, { $set: { s: 'd', r: nowSeconds() } });
@@ -234,9 +266,9 @@ module.exports = async function handler(req, res) {
     if (action === 'friends') {
       const docs = await Friend.find({ $or: [{ a: auth.userId }, { b: auth.userId }], s: { $in: ['a', 'p'] } }).lean();
       const others = docs.map(f => f.a === auth.userId ? f.b : f.a);
-      const users = await User.find({ _id: { $in: others } }).select('n av b ls ps pl st ac vt mc').lean();
+      const users = await User.find({ _id: { $in: others } }).select('n av b ls ps pl pe st ac vt mc').lean();
       const um = Object.fromEntries(users.map(u => [u._id, u]));
-      const row = (u, f) => ({ id: u._id, username: u.n, avatar: u.av || '', bio: u.b || '', status: statusOf(u), plus: !!u.pl, statusText: u.st || '', accent: u.ac || '', voice: u.vt || 0, msgs: u.mc || 0, t: f.t || 0 });
+      const row = (u, f) => { const plus = plusOn(u); return { id: u._id, username: u.n, avatar: u.av || '', bio: plus ? (u.b || '') : (u.b || '').slice(0, 160), status: statusOf(u), plus, statusText: plus ? (u.st || '') : '', accent: plus ? (u.ac || '') : '', voice: u.vt || 0, msgs: u.mc || 0, t: f.t || 0 }; };
       const friends = [], incoming = [], outgoing = [];
       docs.forEach(f => {
         const u = um[f.a === auth.userId ? f.b : f.a];
@@ -308,8 +340,8 @@ module.exports = async function handler(req, res) {
       await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
       const server = await Server.findOne({ _id: Number(id), m: auth.userId }).lean();
       if (!server) return res.status(403).json({ error: 'Not a member.' });
-      const users = await User.find({ _id: { $in: server.m } }).select('n av b ls ps pl st ac vt mc').lean();
-      return res.status(200).json({ owner: server.o, members: users.map(u => ({ id: u._id, username: u.n, avatar: u.av, bio: u.b, status: statusOf(u), plus: !!u.pl, statusText: u.st || '', accent: u.ac || '', online: statusOf(u) !== 'offline', voice: u.vt || 0, msgs: u.mc || 0 })) });
+      const users = await User.find({ _id: { $in: server.m } }).select('n av b ls ps pl pe st ac vt mc').lean();
+      return res.status(200).json({ owner: server.o, members: users.map(u => { const plus = plusOn(u); return { id: u._id, username: u.n, avatar: u.av, bio: plus ? (u.b || '') : (u.b || '').slice(0, 160), status: statusOf(u), plus, statusText: plus ? (u.st || '') : '', accent: plus ? (u.ac || '') : '', online: statusOf(u) !== 'offline', voice: u.vt || 0, msgs: u.mc || 0 }; }) });
     }
 
     if (action === 'channel-delete') {
@@ -343,24 +375,30 @@ module.exports = async function handler(req, res) {
       }
       const after = Number(afterId) || 0;
       const msgs = await Msg.find({ ...match, ...(after ? { _id: { $gt: after } } : {}), d: { $ne: 1 } }).sort({ _id: -1 }).limit(100).lean();
-      const authors = await User.find({ _id: { $in: [...new Set(msgs.map(m => m.a))] } }).select('n av pl ac').lean();
+      const authors = await User.find({ _id: { $in: [...new Set(msgs.map(m => m.a))] } }).select('n av pl pe ac').lean();
       const people = Object.fromEntries(authors.map(u => [u._id, u]));
       return res.status(200).json({
-        messages: msgs.reverse().map(m => ({ id: m._id, mine: m.a === auth.userId, text: m.m, t: m.t, rx: Object.entries(m.rx || {}).map(([e, a]) => ({ e, n: a.length, me: a.includes(auth.userId) })).filter(r => r.n), author: { id: m.a, username: people[m.a]?.n || 'Unknown', avatar: people[m.a]?.av, plus: !!people[m.a]?.pl, accent: people[m.a]?.ac || '' } }))
+        messages: msgs.reverse().map(m => {
+          const p = people[m.a], plus = plusOn(p);
+          return { id: m._id, mine: m.a === auth.userId, text: m.m, t: m.t, rx: Object.entries(m.rx || {}).map(([e, a]) => ({ e, n: a.length, me: a.includes(auth.userId) })).filter(r => r.n), author: { id: m.a, username: p?.n || 'Unknown', avatar: p?.av, plus, accent: plus ? (p?.ac || '') : '' } };
+        })
       });
     }
 
     if (action === 'send') {
       const isServer = kind === 'server';
-      const [okRate, me, member, chanOk, friendOk] = await Promise.all([
+      const [okRate, me, member, chanOk, friendOk, srvPerks] = await Promise.all([
         hit(`msg:${auth.userId}`, 20, 10),
-        User.findById(auth.userId).select('n av pl ac').lean(),
+        User.findById(auth.userId).select('n av pl pe ac').lean(),
         isServer ? isMember(id, auth.userId) : true,
         isServer ? Channel.exists({ _id: Number(channelId), s: Number(id), k: { $ne: 'v' }, d: { $ne: 1 } }) : true,
-        isServer ? true : areFriends(auth.userId, Number(id))
+        isServer ? true : areFriends(auth.userId, Number(id)),
+        isServer ? Server.findById(Number(id)).select('bp').lean() : null
       ]);
       if (!okRate) return res.status(429).json({ error: 'You are sending messages too fast.' });
-      const clean = Array.from(String(text || '').trim()).slice(0, me && me.pl ? 4000 : 2000).join(''); // slice by character, never split an emoji
+      const plus = plusOn(me);
+      const limit = plus || (srvPerks && (srvPerks.bp || []).includes('longmsg')) ? 4000 : 2000;
+      const clean = Array.from(String(text || '').trim()).slice(0, limit).join(''); // slice by character, never split an emoji
       if (!clean) return res.status(400).json({ error: 'Empty message.' });
       let target;
       if (isServer) {
@@ -372,7 +410,7 @@ module.exports = async function handler(req, res) {
         target = { b: Number(id) };
       }
       const [msg] = await Promise.all([createWithId(Msg, { a: auth.userId, ...target, m: clean }), User.updateOne({ _id: auth.userId }, { $inc: { mc: 1 } })]);
-      return res.status(200).json({ message: { id: msg._id, mine: true, text: msg.m, t: msg.t, rx: [], author: { id: auth.userId, username: me?.n || 'You', avatar: me?.av, plus: !!me?.pl, accent: me?.ac || '' } } });
+      return res.status(200).json({ message: { id: msg._id, mine: true, text: msg.m, t: msg.t, rx: [], author: { id: auth.userId, username: me?.n || 'You', avatar: me?.av, plus, accent: plus ? (me?.ac || '') : '' } } });
     }
 
     // ---------- read state (seen/unseen) ----------
@@ -493,16 +531,14 @@ module.exports = async function handler(req, res) {
       const stats = rows.map(r => ({ id: r.u, seconds: r.t + (liveSecs[r.u] || 0), sessions: r.n, last: r.last }));
       for (const uid of Object.keys(liveSecs)) if (!rows.some(r => r.u === Number(uid))) stats.push({ id: Number(uid), seconds: liveSecs[uid], sessions: 0, last: nowSeconds() });
       stats.sort((a, b) => b.seconds - a.seconds);
-      const us = await User.find({ _id: { $in: stats.slice(0, 25).map(a => a.id) } }).select('n av pl').lean();
+      const us = await User.find({ _id: { $in: stats.slice(0, 25).map(a => a.id) } }).select('n av pl pe').lean();
       const m = Object.fromEntries(us.map(u => [u._id, u]));
-      return res.status(200).json({ mine: { voice: (my && my.vt) || 0, msgs: (my && my.mc) || 0 }, stats: stats.slice(0, 25).filter(a => m[a.id]).map(a => ({ id: a.id, username: m[a.id].n, avatar: m[a.id].av || '', plus: !!m[a.id].pl, seconds: a.seconds, sessions: a.sessions, last: a.last })) });
+      return res.status(200).json({ mine: { voice: (my && my.vt) || 0, msgs: (my && my.mc) || 0 }, stats: stats.slice(0, 25).filter(a => m[a.id]).map(a => ({ id: a.id, username: m[a.id].n, avatar: m[a.id].av || '', plus: plusOn(m[a.id]), seconds: a.seconds, sessions: a.sessions, last: a.last })) });
     }
 
-    if (action === 'voice-history') { // Pratr Plus perk: your own recent voice sessions in a server
-      const me = await User.findById(auth.userId).select('pl').lean();
-      if (!me || !me.pl) return res.status(403).json({ error: 'Voice history is a Pratr Plus feature.' });
+    if (action === 'voice-history') { // everyone's own recent voice sessions in a server; the log itself is permanent
       if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
-      const logs = await Log.find({ s: Number(id), a: auth.userId, ty: 'voice_leave' }).sort({ _id: -1 }).limit(30).lean();
+      const logs = await Log.find({ s: Number(id), a: auth.userId, ty: 'voice_leave' }).sort({ _id: -1 }).limit(50).lean();
       return res.status(200).json({ sessions: logs.map(l => ({ t: l.t, cn: l.cn, d: l.d })) });
     }
 
@@ -541,30 +577,108 @@ module.exports = async function handler(req, res) {
       const adm = await User.findById(auth.userId).select('e').lean();
       if (!adm || !isAdmin(adm.e)) return res.status(403).json({ error: 'Admins only.' });
       const qn = String(username || '').trim();
-      const u = qn && await User.findOne({ $or: [{ n: qn }, { e: qn.toLowerCase() }] }).select('n').lean();
-      if (!u) return res.status(404).json({ error: 'User not found.' });
+      const target = qn && await User.findOne({ $or: [{ n: qn }, { e: qn.toLowerCase() }] }).select('n pl pe ng ub').lean();
+      if (!target) return res.status(404).json({ error: 'User not found.' });
+      const now = nowSeconds();
+      if (on === false) {
+        await User.updateOne({ _id: target._id }, { $set: { pl: false, pe: now, ng: 0 } }); // credits are kept: boosts never expire
+        await lg(0, 'plus_grant', auth.userId, { u: target._id, x: 'plan revoked' });
+        return res.status(200).json({ username: target.n, plus: false, boosts: target.ub || 0 });
+      }
+      const len = Math.max(1, Math.min(366, Math.round(Number(days) || 30))); // the plan is 1 month by default
+      const active = plusOn(target, now);
+      const pe = (active ? Math.max(target.pe || 0, now) : now) + len * 86400;
+      const update = { $set: { pl: true, pe } };
+      if (!active) { update.$set.ng = now + MONTH; update.$inc = { ub: 2 }; } // month starts: 2 boosts
+      await User.updateOne({ _id: target._id }, update);
+      await lg(0, 'plus_grant', auth.userId, { u: target._id, x: `${active ? 'renewed' : '1-month plan started'} · ${len} days${active ? '' : ' · +2 boosts'}` });
+      return res.status(200).json({ username: target.n, plus: true, until: pe, days: len, boosts: (target.ub || 0) + (active ? 0 : 2), granted: active ? 0 : 2 });
+    }
+
+    if (action === 'boost-info') {
+      const sid = Number(id);
+      if (!(await isMember(sid, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
+      const [server, me, rows, grants] = await Promise.all([
+        Server.findById(sid).select('o n bc bp sc').lean(),
+        User.findById(auth.userId).select('ub pl pe ng').lean(),
+        Boost.find({ s: sid }).sort({ _id: 1 }).limit(500).lean(),
+        Log.find({ a: auth.userId, ty: 'boost_grant' }).sort({ _id: -1 }).limit(20).lean()
+      ]);
+      if (!server) return res.status(404).json({ error: 'Server not found.' });
+      const boosters = await User.find({ _id: { $in: [...new Set(rows.map(r => r.u))] } }).select('n').lean();
+      const nm = Object.fromEntries(boosters.map(u => [u._id, u.n]));
+      const plus = plusOn(me);
+      return res.status(200).json({
+        server: server.n, owner: server.o, boosts: server.bc || 0, tier: boostTier(server.bc), perks: server.bp || [], accent: server.sc || '',
+        available: BOOST_PERKS, mine: me.ub || 0, plus, nextBoosts: plus ? (me.ng || 0) : 0,
+        history: rows.slice(-30).reverse().map(r => ({ t: r.t, by: nm[r.u] || 'someone' })),
+        grants: grants.map(l => ({ t: l.t, x: l.x }))
+      });
+    }
+
+    if (action === 'server-boost') {
+      const sid = Number(id);
+      if (!(await isMember(sid, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
+      const server = await Server.findById(sid).select('n').lean();
+      if (!server) return res.status(404).json({ error: 'Server not found.' });
+      const amount = Math.max(1, Math.min(10, Math.round(Number(count) || 1)));
+      const spent = await User.findOneAndUpdate({ _id: auth.userId, ub: { $gte: amount } }, { $inc: { ub: -amount } }, { new: true }).select('ub').lean();
+      if (!spent) return res.status(400).json({ error: 'You do not have enough boosts.' });
+      try {
+        for (let i = 0; i < amount; i++) await createWithId(Boost, { u: auth.userId, s: sid });
+        const total = await Boost.countDocuments({ s: sid }); // count from the permanent rows, so the server total can never drift
+        await Server.updateOne({ _id: sid }, { $set: { bc: total } });
+        await lg(sid, 'server_boost', auth.userId, { x: `+${amount} boost${amount === 1 ? '' : 's'}` });
+        const fresh = await Server.findById(sid).select('bc bp sc').lean();
+        return res.status(200).json({ ok: true, boosts: total, tier: boostTier(total), left: spent.ub, unlocked: BOOST_PERKS.filter(p => total >= p.at).map(p => p.k), perks: fresh.bp || [], accent: fresh.sc || '' });
+      } catch (e) {
+        await User.updateOne({ _id: auth.userId }, { $inc: { ub: amount } }); // never charge for a boost that was not stored
+        throw e;
+      }
+    }
+
+    if (action === 'server-perk') {
+      const server = await Server.findOne({ _id: Number(id), o: auth.userId }).select('n bc bp sc').lean();
+      if (!server) return res.status(403).json({ error: 'Only the owner can change server perks.' });
+      const def = BOOST_PERKS.find(p => p.k === String(perk || ''));
+      if (!def) return res.status(400).json({ error: 'Unknown perk.' });
+      if ((server.bc || 0) < def.at) return res.status(400).json({ error: `This perk unlocks at ${def.at} boosts.` });
       const yes = on !== false;
-      await User.updateOne({ _id: u._id }, { pl: yes });
-      await lg(0, 'plus_grant', auth.userId, { u: u._id, x: yes ? 'on' : 'off' });
-      return res.status(200).json({ username: u.n, plus: yes });
+      const update = yes ? { $addToSet: { bp: def.k } } : { $pull: { bp: def.k } };
+      if (def.k === 'accent') {
+        if (yes && !ACCENTS.includes(colour)) return res.status(400).json({ error: 'Pick an accent colour.' });
+        update.$set = { sc: yes ? colour : '' };
+      }
+      await Server.updateOne({ _id: server._id }, update);
+      await lg(server._id, 'server_perk', auth.userId, { x: `${def.k} ${yes ? 'enabled' : 'disabled'}${def.k === 'accent' && yes ? ` (${colour})` : ''}` });
+      const fresh = await Server.findById(server._id).lean();
+      return res.status(200).json({ server: srv(fresh) });
+    }
+
+    if (action === 'boost-history') {
+      const logs = await Log.find({ ty: { $in: ['plus_grant', 'plus_expire', 'boost_grant', 'server_boost'] }, $or: [{ a: auth.userId }, { u: auth.userId }] }).sort({ _id: -1 }).limit(30).lean();
+      const sids = [...new Set(logs.filter(l => l.s > 0).map(l => l.s))];
+      const servers = sids.length ? await Server.find({ _id: { $in: sids } }).select('n').lean() : [];
+      const nm = Object.fromEntries(servers.map(s => [s._id, s.n]));
+      return res.status(200).json({ history: logs.map(l => ({ t: l.t, ty: l.ty, x: l.x, server: nm[l.s] || '' })) });
     }
 
     if (action === 'activity') { // admin: everything one account has done (logins, profile edits, friends, status, plus)
       const adm = await User.findById(auth.userId).select('e').lean();
       if (!adm || !isAdmin(adm.e)) return res.status(403).json({ error: 'Admins only.' });
       const qn = String(username || '').trim();
-      const u = qn && await User.findOne({ $or: [{ n: qn }, { e: qn.toLowerCase() }] }).select('n vt mc').lean();
+      const u = qn && await User.findOne({ $or: [{ n: qn }, { e: qn.toLowerCase() }] }).select('n vt mc pl pe ub').lean();
       if (!u) return res.status(404).json({ error: 'User not found.' });
       const logs = await Log.find({ s: 0, $or: [{ a: u._id }, { u: u._id }] }).sort({ _id: -1 }).limit(100).lean();
-      return res.status(200).json({ username: u.n, voice: u.vt || 0, msgs: u.mc || 0, logs: logs.map(l => ({ id: l._id, t: l.t, ty: l.ty, an: l.an, un: l.un, d: l.d, x: l.x, cn: l.cn })) });
+      return res.status(200).json({ username: u.n, voice: u.vt || 0, msgs: u.mc || 0, plus: plusOn(u), plusUntil: u.pe || 0, boosts: u.ub || 0, logs: logs.map(l => ({ id: l._id, t: l.t, ty: l.ty, an: l.an, un: l.un, d: l.d, x: l.x, cn: l.cn })) });
     }
 
     // ---------- versioned migrations (admin, safe to call again) ----------
     if (action === 'migrate') {
       const adm = await User.findById(auth.userId).select('e').lean();
       if (!adm || !isAdmin(adm.e)) return res.status(403).json({ error: 'Admins only.' });
-      const [m1, m2] = await Promise.all([Meta.findById('migrate1').lean(), Meta.findById('migrate2').lean()]);
-      if (m1 && m1.v === 1 && m2 && m2.v === 1) return res.status(200).json({ ok: true, already: true, at: m2.at });
+      const [m1, m2, m3] = await Promise.all([Meta.findById('migrate1').lean(), Meta.findById('migrate2').lean(), Meta.findById('migrate3').lean()]);
+      if (m1 && m1.v === 1 && m2 && m2.v === 1 && m3 && m3.v === 1) return res.status(200).json({ ok: true, already: true, at: m3.at });
       let vstats = 0, vtSet = 0, mcSet = 0, defaults = 0;
       if (!(m1 && m1.v === 1)) {
         try { await Meta.create({ _id: 'migrate1', v: 0, at: 0 }); } catch (e) { if (e.code !== 11000) throw e; }
@@ -593,8 +707,35 @@ module.exports = async function handler(req, res) {
         try { await Meta.create({ _id: 'migrate2', v: 0, at: 0 }); } catch (e) { if (e.code !== 11000) throw e; }
         await Meta.updateOne({ _id: 'migrate2' }, { v: 1, at: nowSeconds() });
       }
-      await lg(0, 'migrate', auth.userId, { x: `vstats ${vstats}, vt ${vtSet}, mc ${mcSet}, friends ${fr.modifiedCount}` });
-      return res.status(200).json({ ok: true, vstats, vtBackfilled: vtSet, mcBackfilled: mcSet, defaults, friendsBackfilled: fr.modifiedCount });
+      // v4: time-limited Plus and permanent boosts. Only missing values are filled; existing dates and credits are never touched.
+      let planDefaults = 0, legacyPlans = 0, serverDefaults = 0;
+      if (!(m3 && m3.v === 1)) {
+        try { await Meta.create({ _id: 'migrate3', v: 0, at: 0 }); } catch (e) { if (e.code !== 11000) throw e; }
+        const now = nowSeconds();
+        const du = await User.updateMany(
+          { $or: [{ pe: { $exists: false } }, { ng: { $exists: false } }, { ub: { $exists: false } }] },
+          [{ $set: { pe: { $ifNull: ['$pe', 0] }, ng: { $ifNull: ['$ng', 0] }, ub: { $ifNull: ['$ub', 0] } } }],
+          { updatePipeline: true }
+        );
+        planDefaults = du.modifiedCount;
+        // Legacy rows were "Plus forever"; they now get the standard month, starting today, plus that month's 2 boosts, once.
+        const legacy = await User.updateMany(
+          { pl: true, $or: [{ pe: { $exists: false } }, { pe: 0 }] },
+          [{ $set: { pe: now + MONTH, ng: now + MONTH, ub: { $add: [{ $ifNull: ['$ub', 0] }, 2] } } }],
+          { updatePipeline: true }
+        );
+        legacyPlans = legacy.modifiedCount;
+        const ds = await Server.updateMany(
+          { $or: [{ bc: { $exists: false } }, { bp: { $exists: false } }, { sc: { $exists: false } }] },
+          [{ $set: { bc: { $ifNull: ['$bc', 0] }, bp: { $ifNull: ['$bp', []] }, sc: { $ifNull: ['$sc', ''] } } }],
+          { updatePipeline: true }
+        );
+        serverDefaults = ds.modifiedCount;
+        await Promise.all([User.createIndexes(), Server.createIndexes(), Boost.createIndexes()]);
+        await Meta.updateOne({ _id: 'migrate3' }, { v: 1, at: now });
+      }
+      await lg(0, 'migrate', auth.userId, { x: `vstats ${vstats}, vt ${vtSet}, mc ${mcSet}, friends ${fr.modifiedCount}, plans ${legacyPlans}, servers ${serverDefaults}` });
+      return res.status(200).json({ ok: true, vstats, vtBackfilled: vtSet, mcBackfilled: mcSet, defaults, friendsBackfilled: fr.modifiedCount, planDefaults, legacyPlans, serverDefaults });
     }
 
     // ---------- voice ----------

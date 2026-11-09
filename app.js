@@ -293,7 +293,10 @@ async function loadDiscover() {
             }
             openServer(s.id);
         };
-        b.append(h('strong', '', s.name), h('p', '', s.desc || 'No description yet.'), statEl(s.online || 0, s.count), btn);
+        const name = h('strong', '', s.name);
+        if (s.accent) name.style.color = s.accent;
+        if (s.boosts) { const star = h('em', 'badge boost', `✦ ${s.boosts}`); star.title = `${s.boosts} boosts · ${s.tier || 0} perk tiers`; name.append(' ', star); }
+        b.append(name, h('p', '', s.desc || 'No description yet.'), statEl(s.online || 0, s.count), btn);
         c.append(h('div', 'disc-top'), avatar(s.name, 'xl', s.icon), b);
         grid.append(c);
     });
@@ -458,13 +461,13 @@ function appendLinks(el, text) {
     URL_RE.lastIndex = 0;
     let last = 0, m;
     while ((m = URL_RE.exec(text))) {
-        if (m.index > last) el.append(text.slice(last, m.index));
+        if (m.index > last) window.emojiArt.append(el, text.slice(last, m.index));
         const raw = m[0], clean = cleanUrl(raw);
         el.append(linkEl(clean));
         if (clean.length < raw.length) el.append(raw.slice(clean.length)); // keep trailing punctuation out of the link
         last = m.index + raw.length;
     }
-    if (last < text.length) el.append(text.slice(last));
+    if (last < text.length) window.emojiArt.append(el, text.slice(last));
 }
 function linkEmbed(path) { // a rich card for pratr links pasted in chat
     const parts = String(path || '').split('/').filter(Boolean);
@@ -647,14 +650,45 @@ document.addEventListener('keydown', (e) => {
     })();
 })();
 /* ---------- Pratr Plus ---------- */
+const plusDate = (t) => t ? new Date(t * 1000).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+async function loadPlusHistory() {
+    const box = $('plus-history');
+    box.textContent = 'Loading…';
+    const out = await post({ action: 'boost-history' });
+    box.textContent = '';
+    if (!out.res.ok) return void box.append(h('div', 'side-empty', out.data.error || 'Could not load history.'));
+    if (!out.data.history.length) return void box.append(h('div', 'side-empty', 'Nothing yet. Plan and boost events are saved here forever.'));
+    const LABEL = { plus_grant: 'Plus plan', plus_expire: 'Plan ended', boost_grant: 'Monthly boosts', server_boost: 'Server boost' };
+    out.data.history.forEach(l => {
+        const r = h('div', 'logrow');
+        r.append(h('time', '', stamp(l.t)), h('span', '', `${LABEL[l.ty] || l.ty} — ${l.x || ''}${l.server ? ` · ${l.server}` : ''}`));
+        box.append(r);
+    });
+}
 function openPlus() {
-    const has = !!(S.me && S.me.plus);
-    $('plus-state').textContent = has ? 'You have Pratr Plus. Thank you for supporting pratr! ✦' : '';
+    const me = S.me || {}, has = !!me.plus, boosts = me.boosts || 0;
+    const plan = $('plus-plan');
+    plan.textContent = '';
+    const line = (k, v) => { const r = h('div', 'plan-row'); r.append(h('span', '', k), h('b', '', v)); plan.append(r); };
+    line('Plan', '1 month · $1');
+    if (has) {
+        if (me.plusUntil) line('Active until', plusDate(me.plusUntil));
+        line('Boosts available', String(boosts));
+        if (me.nextBoosts) line('Next +2 boosts', plusDate(me.nextBoosts));
+    } else {
+        if (me.plusUntil) line('Ended on', plusDate(me.plusUntil));
+        line('Boosts kept', String(boosts));
+    }
+    $('plus-state').textContent = has
+        ? 'Your perks are active. Renewing adds another month and keeps every boost you already own.'
+        : me.plusUntil ? 'Your plan has ended, so Plus perks are paused. Your boosts, history and saved customisations are still here and come back when you renew.' : '';
     $('plus-buy').classList.toggle('hidden', has);
     $('plus-customize').classList.toggle('hidden', !has);
     $('plus-admin').classList.toggle('hidden', !(S.me && S.me.admin));
     $('plus-msg').textContent = '';
+    $('plus-msg').style.color = '';
     openModal('modal-plus');
+    loadPlusHistory();
 }
 $('plus-btn').onclick = openPlus;
 $('plus-customize').onclick = () => { closeModals(); openProfile(); };
@@ -664,12 +698,25 @@ $('plus-buy-btn').onclick = async () => {
     closeModals(); await loadServers(); openServer(out.data.server.id);
     toast('Welcome to Headquarters! Tell us you want Pratr Plus.');
 };
+async function refreshMe() {
+    const me = await post({ action: 'me' });
+    if (!me.res.ok) return;
+    S.me = me.data; setMe(me.data); renderAll();
+}
 async function plusGrant(on) {
     const u = $('plus-user').value.trim();
     if (!u) return;
-    const out = await post({ action: 'plus-grant', username: u, on });
-    $('plus-msg').style.color = out.res.ok ? 'var(--bone)' : '';
-    $('plus-msg').textContent = out.res.ok ? `${out.data.username}: Plus ${out.data.plus ? 'activated' : 'removed'}.` : (out.data.error || 'Failed.');
+    const days = Math.max(1, Math.min(366, Math.round(Number($('plus-days').value) || 30)));
+    const out = await post({ action: 'plus-grant', username: u, on, days });
+    if (!out.res.ok) { $('plus-msg').style.color = ''; $('plus-msg').textContent = out.data.error || 'Failed.'; return; }
+    const msg = out.data.plus
+        ? `${out.data.username}: Plus active until ${plusDate(out.data.until)} · ${out.data.boosts} boosts${out.data.granted ? ` (+${out.data.granted} this month)` : ''}.`
+        : `${out.data.username}: Plus removed. Their ${out.data.boosts || 0} boosts are kept.`;
+    if (S.me && (u === S.me.username || (S.me.email && u.toLowerCase() === S.me.email.toLowerCase()))) {
+        await refreshMe(); openPlus(); // openPlus clears the message box, so fill it afterwards
+    }
+    $('plus-msg').style.color = 'var(--bone)';
+    $('plus-msg').textContent = msg;
 }
 $('plus-act').onclick = async () => {
     const u = $('plus-user').value.trim(), box = $('plus-log');
@@ -677,7 +724,7 @@ $('plus-act').onclick = async () => {
     const out = await post({ action: 'activity', username: u });
     box.classList.remove('hidden'); box.textContent = '';
     if (!out.res.ok) return void box.append(h('div', 'side-empty', out.data.error || 'Failed.'));
-    box.append(h('div', 'side-empty', `${out.data.username}: ${fmtDur(out.data.voice)} in voice, ${out.data.msgs} messages`));
+    box.append(h('div', 'side-empty', `${out.data.username}: ${fmtDur(out.data.voice)} in voice, ${out.data.msgs} messages · ${out.data.boosts || 0} boosts${out.data.plus ? ` · Plus until ${plusDate(out.data.plusUntil)}` : ''}`));
     out.data.logs.forEach(l => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(l.t)), h('span', '', logText(l))); box.append(r); });
 };
 $('plus-on').onclick = () => plusGrant(true);
