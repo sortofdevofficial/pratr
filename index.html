@@ -57,7 +57,7 @@
     <aside class="side">
       <header class="side-head" id="side-head">
         <h2 id="side-title">Home</h2>
-        <span class="srv-boosts hidden" id="srv-boosts" title="Server boosts"></span>
+        <span class="srv-boosts hidden" id="srv-boosts" title="Server flares"></span>
         <button class="icon-btn hidden" id="server-menu-btn" title="Server menu" aria-label="Server menu"><svg viewBox="0 0 24 24" class="ic"><path d="m6 9 6 6 6-6"/></svg></button>
       </header>
       <div class="side-body">
@@ -177,7 +177,7 @@
   <button data-act="invite"><svg viewBox="0 0 24 24" class="ic"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>Invite people</button>
   <button data-act="channel" id="menu-channel"><svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg>Create channel</button>
   <button data-act="settings" id="menu-settings"><svg viewBox="0 0 24 24" class="ic"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Server settings</button>
-  <button data-act="boosts" id="menu-boosts"><svg viewBox="0 0 24 24" class="ic"><path d="M13 2 4.5 13H11l-1 9 8.5-11H12l1-9z"/></svg>Boosts &amp; perks</button>
+  <button data-act="boosts" id="menu-boosts"><svg viewBox="0 0 24 24" class="ic"><path d="M13 2 4.5 13H11l-1 9 8.5-11H12l1-9z"/></svg>Flares &amp; perks</button>
   <button data-act="vtime" id="menu-vtime"><svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Voice time</button>
   <button data-act="audit" id="menu-audit"><svg viewBox="0 0 24 24" class="ic"><path d="M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h9"/></svg>Audit log</button>
   <button data-act="leave" class="danger" id="menu-leave"><svg viewBox="0 0 24 24" class="ic"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>Leave server</button>
@@ -244,9 +244,15 @@
         <div class="up-btns"><button type="button" class="btn ghost" id="pf-pick">Upload photo</button><button type="button" class="linkbtn" id="pf-clear">Remove</button></div></div>
       <form id="profile-form"><label class="field"><span>Username</span><input id="profile-name" maxlength="20" autocomplete="off" spellcheck="false" required></label>
       <label class="field"><span>Bio <small id="bio-count" class="muted"></small></span><textarea id="profile-bio" rows="3" maxlength="160" placeholder="Tell people a bit about you"></textarea></label>
-      <label class="field"><span>Custom status <em class="badge plus" id="st-plus">✦ Plus</em></span><input id="profile-status" maxlength="60" autocomplete="off" placeholder="What are you up to?"></label>
+      <label class="field"><span>Custom status</span><input id="profile-status" maxlength="60" autocomplete="off" placeholder="What are you up to? Everyone can set one."></label>
+      <div class="two-col">
+        <label class="field"><span>Status lasts</span><select id="status-ttl"><option value="0">Until I change it</option><option value="1800">30 minutes</option><option value="3600">1 hour</option><option value="14400">4 hours</option><option value="28800">8 hours</option><option value="86400">1 day</option><option value="259200">3 days</option><option value="604800">7 days</option><option value="custom">Custom…</option></select></label>
+        <label class="field hidden" id="status-custom-wrap"><span>Custom hours</span><input id="status-custom" type="number" min="1" max="8760" value="12" inputmode="numeric"></label>
+      </div>
+      <p class="hint" id="status-expiry"></p>
+      <div class="field"><span>Profile glow <em class="badge plus" id="glow-plus">✦ Plus</em></span><div class="accents" id="glow-pick"></div><input type="color" id="glow-custom" class="colour-input" value="#ffd36b" title="Pick any glow colour"></div>
       <div class="field"><span>Accent colour <em class="badge plus" id="ac-plus">✦ Plus</em></span><div class="accents" id="accent-pick"></div></div>
-      <p class="hint hidden" id="plus-lock">Custom status, accent colour and a 400-character bio are Pratr Plus features.</p>
+      <p class="hint hidden" id="plus-lock">A glowing profile card, a custom accent colour and a 400-character bio are Pratr Plus features. Your status, its timer and every other option are free for everyone.</p>
       <label class="dev-row"><input type="checkbox" id="dev-toggle"><span><strong>Developer mode</strong><small>Right-click users, channels, servers and messages to copy their IDs.</small></span></label>
       <p class="msg-err" id="profile-msg"></p>
       <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>
@@ -286,15 +292,19 @@
   <div class="modal-card">
     <button class="modal-x" data-close aria-label="Close">×</button>
     <h2>Pratr Plus <span class="plus-price">$1 <small>/ month</small></span></h2>
-    <p class="hint">A one-month plan. Perks work while it is active, and they come back when you renew. Your boosts and history are kept forever.</p>
-    <ul class="perks"><li>✦ PLUS badge next to your name</li><li>Gold username in chats</li><li>✦ marker in server member lists</li><li>Gold ring around your avatar in chats</li><li>Messages up to 4000 characters (instead of 2000)</li><li>Your own voice session history</li><li>Custom status shown next to your name</li><li>Accent colour for your name and avatar ring</li><li>400-character bio (instead of 160)</li><li><b>2 server boosts every month</b> — they never expire</li></ul>
+    <p class="hint">A one-month plan. Perks work while it is active, and they come back when you renew. Your flares and history are kept forever.</p>
+    <ul class="perks"><li>✦ PLUS badge next to your name</li><li>Gold username in chats</li><li>✦ marker in server member lists</li><li>Gold ring around your avatar in chats</li><li><b>A glowing profile card in any colour you pick</b></li><li>Messages up to 4000 characters (instead of 2000)</li><li>Custom status timer, accent colour and 400-character bio</li><li>Your own voice session history</li><li><b>2 server flares every month</b> — they never expire</li><li>Flares unlock banners, logos, custom emoji, stickers and more</li></ul>
     <div class="plus-plan" id="plus-plan"></div>
     <p class="hint" id="plus-state"></p>
     <button class="btn primary hidden" id="plus-customize" type="button">Customise my Plus profile</button>
     <div id="plus-buy"><p class="hint">To buy, join our Headquarters server and tell us you want Pratr Plus. We will activate one month on your account there.</p><button class="btn primary" id="plus-buy-btn" type="button">Open Headquarters</button></div>
     <div id="plus-admin" class="hidden"><div class="sec-title"><span>Admin</span></div>
-      <div class="inline-form"><input id="plus-user" placeholder="Username or email" autocomplete="off"><input id="plus-days" type="number" min="1" max="366" value="30" title="Days" aria-label="Days"><button class="btn primary" id="plus-on" type="button">Grant</button><button class="btn ghost" id="plus-off" type="button">Revoke</button><button class="btn ghost" id="plus-act" type="button">Activity</button></div><div class="logbox hidden" id="plus-log" style="margin-top:12px"></div></div>
-    <div class="sec-title"><span>Plan &amp; boost history</span></div>
+      <div class="inline-form"><input id="plus-user" placeholder="Username or email" autocomplete="off"><input id="plus-days" type="number" min="1" max="366" value="30" title="Days" aria-label="Days"><button class="btn primary" id="plus-on" type="button">Grant Plus</button><button class="btn ghost" id="plus-off" type="button">Revoke</button><button class="btn ghost" id="plus-act" type="button">Activity</button></div><div class="logbox hidden" id="plus-log" style="margin-top:12px"></div>
+      <div class="sec-title"><span>Give or take flares</span></div>
+      <div class="inline-form"><input id="flare-user" placeholder="Username or email" autocomplete="off"><input id="flare-count" type="number" min="-1000000" max="1000000" value="10" title="Flares" aria-label="Flares"><button class="btn primary" id="flare-give" type="button">Give</button><button class="btn ghost" id="flare-take" type="button">Take</button></div>
+      <p class="hint" style="margin-top:8px">Your own username is filled in automatically. Leave it to top up your own balance.</p>
+    </div>
+    <div class="sec-title"><span>Plan &amp; flare history</span></div>
     <div class="logbox" id="plus-history"></div>
     <p class="msg-err" id="plus-msg"></p>
   </div>
@@ -303,20 +313,24 @@
 <div class="modal hidden" id="modal-boosts" role="dialog" aria-modal="true">
   <div class="modal-card wide">
     <button class="modal-x" data-close aria-label="Close">×</button>
-    <h2>Boosts &amp; perks</h2>
-    <p class="hint" id="boost-sub">Boosts are permanent. Every boost this server receives stays counted forever.</p>
+    <h2>Flares &amp; perks</h2>
+    <p class="hint" id="boost-sub">Flares are permanent. Every flare this server receives stays counted forever.</p>
     <div class="boost-stats">
-      <div><b id="boost-count">0</b><span>boosts</span></div>
+      <div><b id="boost-count">0</b><span>flares</span></div>
       <div><b id="boost-tier">0</b><span>perk tiers</span></div>
       <div><b id="boost-mine">0</b><span>yours</span></div>
     </div>
     <p class="hint" id="boost-next"></p>
-    <div class="boost-actions"><button class="btn primary" id="boost-1" type="button">Boost ×1</button><button class="btn ghost" id="boost-2" type="button">Boost ×2</button><button class="btn ghost" id="boost-refresh" type="button">Refresh</button></div>
+    <div class="boost-actions"><button class="btn primary" id="boost-1" type="button">Flare ×1</button><button class="btn ghost" id="boost-2" type="button">Flare ×2</button><button class="btn ghost" id="boost-refresh" type="button">Refresh</button></div>
     <div class="sec-title"><span>Server perks</span></div>
     <div class="boost-perks" id="boost-perks"></div>
-    <div class="sec-title"><span>Recent boosts</span></div>
+    <div id="boost-assets"></div>
+    <div id="boost-admin" class="hidden"><div class="sec-title"><span>Admin flares</span></div>
+      <div class="inline-form"><input id="boost-admin-user" placeholder="Username or email" autocomplete="off"><input id="boost-admin-count" type="number" value="100" title="Flares" aria-label="Flares"><button class="btn primary" id="boost-admin-give" type="button">Give</button><button class="btn ghost" id="boost-admin-take" type="button">Take</button></div>
+    </div>
+    <div class="sec-title"><span>Recent flares</span></div>
     <div class="logbox" id="boost-hist"></div>
-    <div class="sec-title"><span>Your monthly boosts</span></div>
+    <div class="sec-title"><span>Your monthly flares</span></div>
     <div class="logbox" id="boost-grants"></div>
     <p class="msg-err" id="boost-msg"></p>
   </div>

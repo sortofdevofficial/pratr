@@ -1,6 +1,9 @@
 // The handler lives here; models, helpers and connection setup live in ../lib/core.js.
-const { mongoose, bcrypt, jwt, crypto, nowSeconds, onlineCut, statusOf, clientIp, geoOf, deviceOf, clientInfo, infoText, hit, DUMMY_HASH, CURRENT_SCHEMA_VERSION, ensureSchemaVersion, withV, connectDB, User, Pending, Session, Msg, Server, Channel, Voice, VStat, Signal, Log, Read, Meta, Friend, Invite, Boost, lg, VOICE_LIVE, vLive, endVoice, reapMyVoice, reapVoice, readKey, voiceRoom, shortCode, findInvite, sendOtp, nextId, createWithId, isAdmin, areFriends, isMember, srv, okImg, MONTH, plusOn, BOOST_PERKS, boostTier } = require('../lib/core');
-const ACCENTS = ['#ffd36b', '#ff8fa3', '#7ee2b8', '#7cc4ff', '#b99bff', '#ffab6b', '#5ee0d6', '#f0e9db'];
+const { mongoose, bcrypt, jwt, crypto, nowSeconds, onlineCut, statusOf, stOf, clientIp, geoOf, deviceOf, clientInfo, infoText, hit, DUMMY_HASH, CURRENT_SCHEMA_VERSION, ensureSchemaVersion, withV, connectDB, User, Pending, Session, Msg, Server, Channel, Voice, VStat, Signal, Log, Read, Meta, Friend, Invite, Boost, lg, VOICE_LIVE, vLive, endVoice, reapMyVoice, reapVoice, readKey, voiceRoom, shortCode, findInvite, sendOtp, nextId, createWithId, isAdmin, areFriends, isMember, srv, okImg, MONTH, plusOn, BOOST_PERKS, boostTier } = require('../lib/core');
+const ACCENTS = ['#ffd36b', '#ff8fa3', '#7ee2b8', '#7cc4ff', '#b99bff', '#ffab6b', '#5ee0d6', '#f0e9db', '#ff5a4e', '#f472d0', '#8ef58a', '#6ea8ff', '#ffe45e', '#c6a4ff', '#ff9f43', '#9be7ff'];
+// Colours are free-form hex, so people can glow in any shade they like. Values are stored in one canonical lowercase form.
+const isColour = (c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c);
+const cleanColour = (c) => isColour(c) ? c.toLowerCase() : '';
 
 // Plus plans end on their own. Expiring and the monthly 2-boost grant are lazy: they run on the next
 // authenticated request, so no cron is needed. The cache keeps that to one extra read per user per minute.
@@ -18,7 +21,7 @@ async function refreshPlus(uid) {
     const months = Math.min(24, Math.floor((now - u.ng) / MONTH) + 1);
     // Optimistic guard: only the request that still sees this ng value grants, so two tabs cannot double-credit.
     const r = await User.updateOne({ _id: uid, pl: true, ng: u.ng }, { $inc: { ub: 2 * months }, $set: { ng: u.ng + months * MONTH } });
-    if (r.modifiedCount) await lg(0, 'boost_grant', uid, { x: `+${2 * months} boosts (${months} month${months === 1 ? '' : 's'})` });
+    if (r.modifiedCount) await lg(0, 'boost_grant', uid, { x: `+${2 * months} flares (${months} month${months === 1 ? '' : 's'})` });
   }
 }
 async function refreshPlusMaybe(uid) {
@@ -41,7 +44,7 @@ module.exports = async function handler(req, res) {
     if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16) return res.status(500).json({ error: 'Server is not configured.' });
     await connectDB();
     const tooMany = () => res.status(429).json({ error: 'Too many attempts. Please wait a bit and try again.' });
-    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q, status, ck, to, sig, mu, df, on, npw, lastId, afterId, st, ac, days, count, perk, colour } = body;
+    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q, status, ck, to, sig, mu, df, on, npw, lastId, afterId, st, ac, days, count, perk, colour, sx, pg, field } = body;
 
     if (action === 'register') {
       const key = String(email || '').trim().toLowerCase();
@@ -106,9 +109,11 @@ module.exports = async function handler(req, res) {
     if (action === 'me') {
       await reapMyVoice(auth.userId);
       await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
-      const me = await User.findById(auth.userId).select('e n av b ps pl pe ng ub st ac vt mc').lean();
-      const plus = plusOn(me);
-      return res.status(200).json({ id: me._id, email: me.e, username: me.n, avatar: me.av || '', bio: plus ? (me.b || '') : (me.b || '').slice(0, 160), status: me.ps || 'online', plus, plusUntil: me.pe || 0, boosts: me.ub || 0, nextBoosts: plus ? (me.ng || 0) : 0, statusText: plus ? (me.st || '') : '', accent: plus ? (me.ac || '') : '', admin: isAdmin(me.e), voice: me.vt || 0, msgs: me.mc || 0 });
+      const me = await User.findById(auth.userId).select('e n av b ps pl pe ng ub st sx ac pg vt mc').lean();
+      const now = nowSeconds();
+      if (me.st && me.sx && me.sx <= now) { me.st = ''; me.sx = 0; await User.updateOne({ _id: auth.userId }, { $set: { st: '', sx: 0 } }); } // expired statuses clear themselves
+      const plus = plusOn(me, now);
+      return res.status(200).json({ id: me._id, email: me.e, username: me.n, avatar: me.av || '', bio: plus ? (me.b || '') : (me.b || '').slice(0, 160), status: me.ps || 'online', plus, plusUntil: me.pe || 0, boosts: me.ub || 0, nextBoosts: plus ? (me.ng || 0) : 0, statusText: me.st || '', statusUntil: me.sx || 0, accent: plus ? (me.ac || '') : '', glow: plus ? (me.pg || '') : '', admin: isAdmin(me.e), voice: me.vt || 0, msgs: me.mc || 0 });
     }
 
     if (action === 'presence-set') {
@@ -123,16 +128,21 @@ module.exports = async function handler(req, res) {
       if (!uname) return res.status(400).json({ error: 'Username required.' });
       if (await User.exists({ n: uname, _id: { $ne: auth.userId } })) return res.status(400).json({ error: 'Username taken.' });
       if (!okImg(avatar ?? '')) return res.status(400).json({ error: 'Invalid image.' });
-      const old = await User.findById(auth.userId).select('n av b pl pe st ac').lean();
+      const old = await User.findById(auth.userId).select('n av b pl pe st sx ac pg').lean();
       const plus = plusOn(old);
+      const now = nowSeconds();
       const cleanBio = String(bio || '').trim().slice(0, plus ? 400 : 160);
-      // Status and accent are Plus-only; for everyone else the stored values (if any) stay untouched.
-      const cleanSt = plus ? String(st || '').trim().slice(0, 60) : (old.st || '');
-      const cleanAc = plus && ACCENTS.includes(ac) ? ac : (old.ac || '');
-      await User.updateOne({ _id: auth.userId }, { n: uname, av: avatar || '', b: cleanBio, st: cleanSt, ac: cleanAc });
-      const diff = [old.n !== uname && `name ${old.n} → ${uname}`, (old.av || '') !== (avatar || '') && 'avatar changed', (old.b || '') !== cleanBio && 'bio changed', (old.st || '') !== cleanSt && `status “${cleanSt || 'cleared'}”`, (old.ac || '') !== cleanAc && 'accent changed'].filter(Boolean);
+      // Custom status is for everyone; the timer (sx, seconds from now) is optional and 0 means never.
+      const cleanSt = String(st || '').trim().slice(0, 60);
+      const ttl = Math.round(Number(sx) || 0);
+      const cleanSx = cleanSt && ttl > 0 ? now + Math.max(60, Math.min(365 * 86400, ttl)) : 0;
+      // Accent and profile glow stay Plus-only. Both accept any hex colour.
+      const cleanAc = plus ? (cleanColour(ac) || (ACCENTS.includes(ac) ? ac : '') || old.ac || '') : (old.ac || '');
+      const cleanPg = plus ? (cleanColour(pg) || (ACCENTS.includes(pg) ? pg : '') || old.pg || '') : (old.pg || '');
+      await User.updateOne({ _id: auth.userId }, { n: uname, av: avatar || '', b: cleanBio, st: cleanSt, sx: cleanSx, ac: cleanAc, pg: cleanPg });
+      const diff = [old.n !== uname && `name ${old.n} → ${uname}`, (old.av || '') !== (avatar || '') && 'avatar changed', (old.b || '') !== cleanBio && 'bio changed', (old.st || '') !== cleanSt && `status “${cleanSt || 'cleared'}”`, (old.sx || 0) !== cleanSx && (cleanSx ? `status expires ${new Date(cleanSx * 1000).toISOString().slice(0, 16)}` : 'status never expires'), (old.ac || '') !== cleanAc && 'accent changed', (old.pg || '') !== cleanPg && 'profile glow changed'].filter(Boolean);
       if (diff.length) await lg(0, 'profile', auth.userId, { x: diff.join(', ') });
-      return res.status(200).json({ username: uname, avatar: avatar || '', bio: cleanBio, statusText: cleanSt, accent: cleanAc });
+      return res.status(200).json({ username: uname, avatar: avatar || '', bio: cleanBio, statusText: cleanSt, statusUntil: cleanSx, accent: cleanAc, glow: cleanPg });
     }
 
     if (action === 'upload-sign') {
@@ -157,6 +167,46 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ server: srv(server) });
     }
 
+    if (action === 'server-asset') {
+      // Banner and logo are image perks: the owner can only set them once the perk is unlocked and enabled.
+      const server = await Server.findOne({ _id: Number(id), o: auth.userId }).select('bp n').lean();
+      if (!server) return res.status(403).json({ error: 'Only the owner can edit the server.' });
+      const which = field === 'banner' ? 'banner' : field === 'logo' ? 'logo' : '';
+      if (!which) return res.status(400).json({ error: 'Unknown image.' });
+      if (!(server.bp || []).includes(which)) return res.status(400).json({ error: `Enable the ${which === 'banner' ? 'animated banner' : 'server logo'} perk first.` });
+      if (!okImg(icon ?? '')) return res.status(400).json({ error: 'Invalid image.' });
+      const fresh = await Server.findOneAndUpdate({ _id: server._id, o: auth.userId }, which === 'banner' ? { bn: icon || '' } : { lg: icon || '' }, { new: true }).lean();
+      await lg(server._id, 'server_update', auth.userId, { x: `${which} ${icon ? 'changed' : 'removed'}` });
+      return res.status(200).json({ server: srv(fresh) });
+    }
+
+    if (action === 'emoji-add' || action === 'emoji-remove' || action === 'sticker-add' || action === 'sticker-remove') {
+      if (!(await hit(`asset:${auth.userId}`, 60, 3600))) return tooMany();
+      const isEmoji = action.startsWith('emoji');
+      const adding = action.endsWith('-add');
+      const server = await Server.findOne({ _id: Number(id), o: auth.userId }).select('bp em sk').lean();
+      if (!server) return res.status(403).json({ error: 'Only the owner can edit the server.' });
+      const perk = isEmoji ? 'emoji' : 'sticker';
+      if (!(server.bp || []).includes(perk)) return res.status(400).json({ error: `Enable the ${isEmoji ? 'custom emoji' : 'stickers'} perk first.` });
+      let nm = String(name || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
+      if (!nm) return res.status(400).json({ error: 'Give it a short name (letters, numbers, underscores).' });
+      const list = (isEmoji ? server.em : server.sk) || [];
+      if (adding) {
+        if (list.length >= (isEmoji ? 50 : 30)) return res.status(400).json({ error: `This server already has the maximum number of ${isEmoji ? 'emoji' : 'stickers'}.` });
+        if (list.some(x => x.n === nm)) return res.status(400).json({ error: 'That name is already used here.' });
+        if (!okImg(icon ?? '')) return res.status(400).json({ error: 'Upload an image first.' });
+        await Server.updateOne({ _id: server._id }, isEmoji ? { $push: { em: { n: nm, u: icon } } } : { $push: { sk: { n: nm, u: icon } } });
+        await lg(server._id, 'server_update', auth.userId, { x: `${isEmoji ? 'emoji' : 'sticker'} :${nm}: added` });
+      } else {
+        const found = list.some(x => x.n === nm);
+        if (!found) return res.status(404).json({ error: 'Not found.' });
+        await Server.updateOne({ _id: server._id }, isEmoji ? { $pull: { em: { n: nm } } } : { $pull: { sk: { n: nm } } });
+        await lg(server._id, 'server_update', auth.userId, { x: `${isEmoji ? 'emoji' : 'sticker'} :${nm}: removed` });
+      }
+      const fresh = await Server.findById(server._id).select('em sk').lean();
+      return res.status(200).json({ emoji: fresh.em || [], stickers: fresh.sk || [] });
+    }
+
     if (action === 'friend-add') {
       if (!(await hit(`fr:${auth.userId}`, 20, 3600))) return tooMany();
       const q = String(username || '').trim();
@@ -165,7 +215,7 @@ module.exports = async function handler(req, res) {
       if (other._id === auth.userId) return res.status(400).json({ error: "You can't add yourself." });
       const [x, y] = [auth.userId, other._id].sort((p, q2) => p - q2);
       const key = `${x}:${y}`;
-      const pair = (s) => ({ id: other._id, username: other.n, avatar: other.av || '', bio: plusOn(other) ? (other.b || '') : (other.b || '').slice(0, 160), status: statusOf(other), plus: plusOn(other), statusText: plusOn(other) ? (other.st || '') : '', accent: plusOn(other) ? (other.ac || '') : '', voice: other.vt || 0, msgs: other.mc || 0, s });
+      const pair = (s) => ({ id: other._id, username: other.n, avatar: other.av || '', bio: plusOn(other) ? (other.b || '') : (other.b || '').slice(0, 160), status: statusOf(other), plus: plusOn(other), statusText: stOf(other), accent: plusOn(other) ? (other.ac || '') : '', glow: plusOn(other) ? (other.pg || '') : '', voice: other.vt || 0, msgs: other.mc || 0, s });
       const cur = await Friend.findById(key).lean();
       if (cur && cur.s === 'a') return res.status(400).json({ error: 'You are already friends.' });
       if (cur && cur.s === 'p') {
@@ -194,7 +244,7 @@ module.exports = async function handler(req, res) {
         await Friend.updateOne({ _id: key }, { $set: { s: 'a', r: nowSeconds() } });
         await lg(0, 'friend_accept', auth.userId, { u: uid });
         const plus = plusOn(other);
-        return res.status(200).json({ friend: { id: other._id, username: other.n, avatar: other.av || '', bio: plus ? (other.b || '') : (other.b || '').slice(0, 160), status: statusOf(other), plus, statusText: plus ? (other.st || '') : '', accent: plus ? (other.ac || '') : '', voice: other.vt || 0, msgs: other.mc || 0 } });
+        return res.status(200).json({ friend: { id: other._id, username: other.n, avatar: other.av || '', bio: plus ? (other.b || '') : (other.b || '').slice(0, 160), status: statusOf(other), plus, statusText: stOf(other), accent: plus ? (other.ac || '') : '', glow: plus ? (other.pg || '') : '', voice: other.vt || 0, msgs: other.mc || 0 } });
       }
       // Denying an incoming request and cancelling your own outgoing one are the same stored event, logged differently.
       await Friend.updateOne({ _id: key }, { $set: { s: 'd', r: nowSeconds() } });
@@ -266,9 +316,9 @@ module.exports = async function handler(req, res) {
     if (action === 'friends') {
       const docs = await Friend.find({ $or: [{ a: auth.userId }, { b: auth.userId }], s: { $in: ['a', 'p'] } }).lean();
       const others = docs.map(f => f.a === auth.userId ? f.b : f.a);
-      const users = await User.find({ _id: { $in: others } }).select('n av b ls ps pl pe st ac vt mc').lean();
+      const users = await User.find({ _id: { $in: others } }).select('n av b ls ps pl pe st sx ac pg vt mc').lean();
       const um = Object.fromEntries(users.map(u => [u._id, u]));
-      const row = (u, f) => { const plus = plusOn(u); return { id: u._id, username: u.n, avatar: u.av || '', bio: plus ? (u.b || '') : (u.b || '').slice(0, 160), status: statusOf(u), plus, statusText: plus ? (u.st || '') : '', accent: plus ? (u.ac || '') : '', voice: u.vt || 0, msgs: u.mc || 0, t: f.t || 0 }; };
+      const row = (u, f) => { const plus = plusOn(u); return { id: u._id, username: u.n, avatar: u.av || '', bio: plus ? (u.b || '') : (u.b || '').slice(0, 160), status: statusOf(u), plus, statusText: stOf(u), accent: plus ? (u.ac || '') : '', glow: plus ? (u.pg || '') : '', voice: u.vt || 0, msgs: u.mc || 0, t: f.t || 0 }; };
       const friends = [], incoming = [], outgoing = [];
       docs.forEach(f => {
         const u = um[f.a === auth.userId ? f.b : f.a];
@@ -340,8 +390,8 @@ module.exports = async function handler(req, res) {
       await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
       const server = await Server.findOne({ _id: Number(id), m: auth.userId }).lean();
       if (!server) return res.status(403).json({ error: 'Not a member.' });
-      const users = await User.find({ _id: { $in: server.m } }).select('n av b ls ps pl pe st ac vt mc').lean();
-      return res.status(200).json({ owner: server.o, members: users.map(u => { const plus = plusOn(u); return { id: u._id, username: u.n, avatar: u.av, bio: plus ? (u.b || '') : (u.b || '').slice(0, 160), status: statusOf(u), plus, statusText: plus ? (u.st || '') : '', accent: plus ? (u.ac || '') : '', online: statusOf(u) !== 'offline', voice: u.vt || 0, msgs: u.mc || 0 }; }) });
+      const users = await User.find({ _id: { $in: server.m } }).select('n av b ls ps pl pe st sx ac pg vt mc').lean();
+      return res.status(200).json({ owner: server.o, members: users.map(u => { const plus = plusOn(u); return { id: u._id, username: u.n, avatar: u.av, bio: plus ? (u.b || '') : (u.b || '').slice(0, 160), status: statusOf(u), plus, statusText: stOf(u), accent: plus ? (u.ac || '') : '', glow: plus ? (u.pg || '') : '', online: statusOf(u) !== 'offline', voice: u.vt || 0, msgs: u.mc || 0 }; }) });
     }
 
     if (action === 'channel-delete') {
@@ -375,12 +425,12 @@ module.exports = async function handler(req, res) {
       }
       const after = Number(afterId) || 0;
       const msgs = await Msg.find({ ...match, ...(after ? { _id: { $gt: after } } : {}), d: { $ne: 1 } }).sort({ _id: -1 }).limit(100).lean();
-      const authors = await User.find({ _id: { $in: [...new Set(msgs.map(m => m.a))] } }).select('n av pl pe ac').lean();
+      const authors = await User.find({ _id: { $in: [...new Set(msgs.map(m => m.a))] } }).select('n av pl pe ac pg').lean();
       const people = Object.fromEntries(authors.map(u => [u._id, u]));
       return res.status(200).json({
         messages: msgs.reverse().map(m => {
           const p = people[m.a], plus = plusOn(p);
-          return { id: m._id, mine: m.a === auth.userId, text: m.m, t: m.t, rx: Object.entries(m.rx || {}).map(([e, a]) => ({ e, n: a.length, me: a.includes(auth.userId) })).filter(r => r.n), author: { id: m.a, username: p?.n || 'Unknown', avatar: p?.av, plus, accent: plus ? (p?.ac || '') : '' } };
+          return { id: m._id, mine: m.a === auth.userId, text: m.m, t: m.t, rx: Object.entries(m.rx || {}).map(([e, a]) => ({ e, n: a.length, me: a.includes(auth.userId) })).filter(r => r.n), author: { id: m.a, username: p?.n || 'Unknown', avatar: p?.av, plus, accent: plus ? (p?.ac || '') : '', glow: plus ? (p?.pg || '') : '' } };
         })
       });
     }
@@ -389,7 +439,7 @@ module.exports = async function handler(req, res) {
       const isServer = kind === 'server';
       const [okRate, me, member, chanOk, friendOk, srvPerks] = await Promise.all([
         hit(`msg:${auth.userId}`, 20, 10),
-        User.findById(auth.userId).select('n av pl pe ac').lean(),
+        User.findById(auth.userId).select('n av pl pe ac pg').lean(),
         isServer ? isMember(id, auth.userId) : true,
         isServer ? Channel.exists({ _id: Number(channelId), s: Number(id), k: { $ne: 'v' }, d: { $ne: 1 } }) : true,
         isServer ? true : areFriends(auth.userId, Number(id)),
@@ -410,7 +460,7 @@ module.exports = async function handler(req, res) {
         target = { b: Number(id) };
       }
       const [msg] = await Promise.all([createWithId(Msg, { a: auth.userId, ...target, m: clean }), User.updateOne({ _id: auth.userId }, { $inc: { mc: 1 } })]);
-      return res.status(200).json({ message: { id: msg._id, mine: true, text: msg.m, t: msg.t, rx: [], author: { id: auth.userId, username: me?.n || 'You', avatar: me?.av, plus, accent: plus ? (me?.ac || '') : '' } } });
+      return res.status(200).json({ message: { id: msg._id, mine: true, text: msg.m, t: msg.t, rx: [], author: { id: auth.userId, username: me?.n || 'You', avatar: me?.av, plus, accent: plus ? (me?.ac || '') : '', glow: plus ? (me?.pg || '') : '' } } });
     }
 
     // ---------- read state (seen/unseen) ----------
@@ -591,15 +641,31 @@ module.exports = async function handler(req, res) {
       const update = { $set: { pl: true, pe } };
       if (!active) { update.$set.ng = now + MONTH; update.$inc = { ub: 2 }; } // month starts: 2 boosts
       await User.updateOne({ _id: target._id }, update);
-      await lg(0, 'plus_grant', auth.userId, { u: target._id, x: `${active ? 'renewed' : '1-month plan started'} · ${len} days${active ? '' : ' · +2 boosts'}` });
+      await lg(0, 'plus_grant', auth.userId, { u: target._id, x: `${active ? 'renewed' : '1-month plan started'} · ${len} days${active ? '' : ' · +2 flares'}` });
       return res.status(200).json({ username: target.n, plus: true, until: pe, days: len, boosts: (target.ub || 0) + (active ? 0 : 2), granted: active ? 0 : 2 });
+    }
+
+    if (action === 'flare-grant') {
+      // Admins can hand out (or take back) any number of flares. They are the same currency Plus grants every month.
+      const adm = await User.findById(auth.userId).select('e').lean();
+      if (!adm || !isAdmin(adm.e)) return res.status(403).json({ error: 'Admins only.' });
+      const qn = String(username || '').trim();
+      if (!qn) return res.status(400).json({ error: 'Username or email required.' });
+      const target = await User.findOne({ $or: [{ n: qn }, { e: qn.toLowerCase() }] }).select('n ub').lean();
+      if (!target) return res.status(404).json({ error: 'User not found.' });
+      const n = Math.round(Number(count) || 0);
+      if (!n) return res.status(400).json({ error: 'Enter how many flares to give or take.' });
+      const next = Math.max(0, Math.min(1000000, (target.ub || 0) + Math.max(-1000000, Math.min(1000000, n))));
+      await User.updateOne({ _id: target._id }, { $set: { ub: next } });
+      await lg(0, 'boost_grant', auth.userId, { u: target._id, x: `${n > 0 ? '+' : ''}${next - (target.ub || 0)} flares (admin)` });
+      return res.status(200).json({ username: target.n, boosts: next, delta: next - (target.ub || 0) });
     }
 
     if (action === 'boost-info') {
       const sid = Number(id);
       if (!(await isMember(sid, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
       const [server, me, rows, grants] = await Promise.all([
-        Server.findById(sid).select('o n bc bp sc').lean(),
+        Server.findById(sid).select('o n bc bp sc bn lg em sk').lean(),
         User.findById(auth.userId).select('ub pl pe ng').lean(),
         Boost.find({ s: sid }).sort({ _id: 1 }).limit(500).lean(),
         Log.find({ a: auth.userId, ty: 'boost_grant' }).sort({ _id: -1 }).limit(20).lean()
@@ -610,6 +676,7 @@ module.exports = async function handler(req, res) {
       const plus = plusOn(me);
       return res.status(200).json({
         server: server.n, owner: server.o, boosts: server.bc || 0, tier: boostTier(server.bc), perks: server.bp || [], accent: server.sc || '',
+        banner: server.bn || '', logo: server.lg || '', emoji: server.em || [], stickers: server.sk || [],
         available: BOOST_PERKS, mine: me.ub || 0, plus, nextBoosts: plus ? (me.ng || 0) : 0,
         history: rows.slice(-30).reverse().map(r => ({ t: r.t, by: nm[r.u] || 'someone' })),
         grants: grants.map(l => ({ t: l.t, x: l.x }))
@@ -621,18 +688,20 @@ module.exports = async function handler(req, res) {
       if (!(await isMember(sid, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
       const server = await Server.findById(sid).select('n').lean();
       if (!server) return res.status(404).json({ error: 'Server not found.' });
-      const amount = Math.max(1, Math.min(10, Math.round(Number(count) || 1)));
+      const adm = await User.findById(auth.userId).select('e').lean();
+      const max = adm && isAdmin(adm.e) ? 10000 : 10;
+      const amount = Math.max(1, Math.min(max, Math.round(Number(count) || 1)));
       const spent = await User.findOneAndUpdate({ _id: auth.userId, ub: { $gte: amount } }, { $inc: { ub: -amount } }, { new: true }).select('ub').lean();
-      if (!spent) return res.status(400).json({ error: 'You do not have enough boosts.' });
+      if (!spent) return res.status(400).json({ error: 'You do not have enough flares.' });
       try {
         for (let i = 0; i < amount; i++) await createWithId(Boost, { u: auth.userId, s: sid });
         const total = await Boost.countDocuments({ s: sid }); // count from the permanent rows, so the server total can never drift
         await Server.updateOne({ _id: sid }, { $set: { bc: total } });
-        await lg(sid, 'server_boost', auth.userId, { x: `+${amount} boost${amount === 1 ? '' : 's'}` });
-        const fresh = await Server.findById(sid).select('bc bp sc').lean();
-        return res.status(200).json({ ok: true, boosts: total, tier: boostTier(total), left: spent.ub, unlocked: BOOST_PERKS.filter(p => total >= p.at).map(p => p.k), perks: fresh.bp || [], accent: fresh.sc || '' });
+        await lg(sid, 'server_boost', auth.userId, { x: `+${amount} flare${amount === 1 ? '' : 's'}` });
+        const fresh = await Server.findById(sid).select('bc bp sc bn lg em sk').lean();
+        return res.status(200).json({ ok: true, boosts: total, tier: boostTier(total), left: spent.ub, unlocked: BOOST_PERKS.filter(p => total >= p.at).map(p => p.k), perks: fresh.bp || [], accent: fresh.sc || '', banner: fresh.bn || '', logo: fresh.lg || '', emoji: fresh.em || [], stickers: fresh.sk || [] });
       } catch (e) {
-        await User.updateOne({ _id: auth.userId }, { $inc: { ub: amount } }); // never charge for a boost that was not stored
+        await User.updateOne({ _id: auth.userId }, { $inc: { ub: amount } }); // never charge for a flare that was not stored
         throw e;
       }
     }
@@ -642,15 +711,16 @@ module.exports = async function handler(req, res) {
       if (!server) return res.status(403).json({ error: 'Only the owner can change server perks.' });
       const def = BOOST_PERKS.find(p => p.k === String(perk || ''));
       if (!def) return res.status(400).json({ error: 'Unknown perk.' });
-      if ((server.bc || 0) < def.at) return res.status(400).json({ error: `This perk unlocks at ${def.at} boosts.` });
+      if ((server.bc || 0) < def.at) return res.status(400).json({ error: `This perk unlocks at ${def.at} flares.` });
       const yes = on !== false;
       const update = yes ? { $addToSet: { bp: def.k } } : { $pull: { bp: def.k } };
       if (def.k === 'accent') {
-        if (yes && !ACCENTS.includes(colour)) return res.status(400).json({ error: 'Pick an accent colour.' });
-        update.$set = { sc: yes ? colour : '' };
+        const col = cleanColour(colour) || (ACCENTS.includes(colour) ? colour : '');
+        if (yes && !col) return res.status(400).json({ error: 'Pick an accent colour.' });
+        update.$set = { sc: yes ? col : '' };
       }
       await Server.updateOne({ _id: server._id }, update);
-      await lg(server._id, 'server_perk', auth.userId, { x: `${def.k} ${yes ? 'enabled' : 'disabled'}${def.k === 'accent' && yes ? ` (${colour})` : ''}` });
+      await lg(server._id, 'server_perk', auth.userId, { x: `${def.k} ${yes ? 'enabled' : 'disabled'}${def.k === 'accent' && yes ? ` (${update.$set.sc})` : ''}` });
       const fresh = await Server.findById(server._id).lean();
       return res.status(200).json({ server: srv(fresh) });
     }
@@ -677,8 +747,8 @@ module.exports = async function handler(req, res) {
     if (action === 'migrate') {
       const adm = await User.findById(auth.userId).select('e').lean();
       if (!adm || !isAdmin(adm.e)) return res.status(403).json({ error: 'Admins only.' });
-      const [m1, m2, m3] = await Promise.all([Meta.findById('migrate1').lean(), Meta.findById('migrate2').lean(), Meta.findById('migrate3').lean()]);
-      if (m1 && m1.v === 1 && m2 && m2.v === 1 && m3 && m3.v === 1) return res.status(200).json({ ok: true, already: true, at: m3.at });
+      const [m1, m2, m3, m4] = await Promise.all([Meta.findById('migrate1').lean(), Meta.findById('migrate2').lean(), Meta.findById('migrate3').lean(), Meta.findById('migrate4').lean()]);
+      if (m1 && m1.v === 1 && m2 && m2.v === 1 && m3 && m3.v === 1 && m4 && m4.v === 1) return res.status(200).json({ ok: true, already: true, at: m4.at });
       let vstats = 0, vtSet = 0, mcSet = 0, defaults = 0;
       if (!(m1 && m1.v === 1)) {
         try { await Meta.create({ _id: 'migrate1', v: 0, at: 0 }); } catch (e) { if (e.code !== 11000) throw e; }
@@ -734,8 +804,24 @@ module.exports = async function handler(req, res) {
         await Promise.all([User.createIndexes(), Server.createIndexes(), Boost.createIndexes()]);
         await Meta.updateOne({ _id: 'migrate3' }, { v: 1, at: now });
       }
-      await lg(0, 'migrate', auth.userId, { x: `vstats ${vstats}, vt ${vtSet}, mc ${mcSet}, friends ${fr.modifiedCount}, plans ${legacyPlans}, servers ${serverDefaults}` });
-      return res.status(200).json({ ok: true, vstats, vtBackfilled: vtSet, mcBackfilled: mcSet, defaults, friendsBackfilled: fr.modifiedCount, planDefaults, legacyPlans, serverDefaults });
+      // v5: statuses for everyone, profile glow, and server banner/logo/custom emoji/sticker fields.
+      let statusDefaults = 0, serverAssets = 0;
+      if (!(m4 && m4.v === 1)) {
+        try { await Meta.create({ _id: 'migrate4', v: 0, at: 0 }); } catch (e) { if (e.code !== 11000) throw e; }
+        statusDefaults = (await User.updateMany(
+          { $or: [{ sx: { $exists: false } }, { pg: { $exists: false } }] },
+          [{ $set: { sx: { $ifNull: ['$sx', 0] }, pg: { $ifNull: ['$pg', ''] } } }],
+          { updatePipeline: true }
+        )).modifiedCount;
+        serverAssets = (await Server.updateMany(
+          { $or: [{ bn: { $exists: false } }, { lg: { $exists: false } }, { em: { $exists: false } }, { sk: { $exists: false } }] },
+          [{ $set: { bn: { $ifNull: ['$bn', ''] }, lg: { $ifNull: ['$lg', ''] }, em: { $ifNull: ['$em', []] }, sk: { $ifNull: ['$sk', []] } } }],
+          { updatePipeline: true }
+        )).modifiedCount;
+        await Meta.updateOne({ _id: 'migrate4' }, { v: 1, at: nowSeconds() });
+      }
+      await lg(0, 'migrate', auth.userId, { x: `vstats ${vstats}, vt ${vtSet}, mc ${mcSet}, friends ${fr.modifiedCount}, plans ${legacyPlans}, servers ${serverDefaults}, statuses ${statusDefaults}, assets ${serverAssets}` });
+      return res.status(200).json({ ok: true, vstats, vtBackfilled: vtSet, mcBackfilled: mcSet, defaults, friendsBackfilled: fr.modifiedCount, planDefaults, legacyPlans, serverDefaults, statusDefaults, serverAssets });
     }
 
     // ---------- voice ----------

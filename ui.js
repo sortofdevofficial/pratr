@@ -11,12 +11,13 @@ function renderRail() {
     const box = $('rail-servers');
     box.textContent = '';
     S.servers.forEach(s => {
-        const b = h('button', 'rail-btn' + (S.server && S.server.id === s.id ? ' active' : ''), s.icon ? '' : ini(s.name));
-        if (s.icon) b.style.background = bg(s.icon);
+        const art = s.logo || s.icon;
+        const b = h('button', 'rail-btn' + (S.server && S.server.id === s.id ? ' active' : ''), art ? '' : ini(s.name));
+        if (art) b.style.background = bg(art);
         if (s.accent) b.style.boxShadow = `inset 0 0 0 2px ${s.accent}`;
-        if (s.boosts) { const star = h('i', 'rail-boost', '✦'); star.title = `${s.boosts} boosts`; b.append(star); }
-        b.title = s.name + (s.boosts ? ` · ${s.boosts} boosts` : '');
-        b._ctx = () => [...(s.owner === S.me?.id ? [['Server settings', () => openServer(s.id).then(openServerSettings)]] : []), ['Boosts & perks', () => { openServer(s.id).then(openBoosts); }], ['Copy server link', () => copy(location.origin + '/channels/' + s.id)], ['Copy server name', () => copy(s.name)], ...idItem('server', s.id)];
+        if (s.boosts) { const star = h('i', 'rail-boost', '✦'); star.title = `${s.boosts} flares`; b.append(star); }
+        b.title = s.name + (s.boosts ? ` · ${s.boosts} flares` : '');
+        b._ctx = () => [...(s.owner === S.me?.id ? [['Server settings', () => openServer(s.id).then(openServerSettings)]] : []), ['Flares & perks', () => { openServer(s.id).then(openBoosts); }], ['Copy server link', () => copy(location.origin + '/channels/' + s.id)], ['Copy server name', () => copy(s.name)], ...idItem('server', s.id)];
         b.onclick = () => openServer(s.id);
         box.append(b);
     });
@@ -28,11 +29,19 @@ function renderSide() {
     title.textContent = server ? S.server.name : S.view === 'discover' ? 'Discover' : 'Home';
     const accent = server ? S.server.accent || '' : '';
     title.style.background = accent ? `linear-gradient(90deg, ${accent}, ${accent})` : '';
+    const sh = $('side-head');
+    let logoEl = sh.querySelector('.side-logo');
+    if (server && S.server.logo) {
+        if (!logoEl) { logoEl = h('img', 'side-logo'); logoEl.alt = ''; sh.insertBefore(logoEl, title); }
+        logoEl.src = S.server.logo;
+    } else if (logoEl) logoEl.remove();
+    sh.classList.toggle('has-banner', !!(server && S.server.banner));
+    sh.style.backgroundImage = server && S.server.banner ? `linear-gradient(180deg, rgba(6,12,25,.2), rgba(6,12,25,.78)), url("${S.server.banner}")` : '';
     const chip = $('srv-boosts');
     chip.classList.toggle('hidden', !server || !(S.server.boosts > 0));
     if (server && S.server.boosts > 0) {
         chip.textContent = `✦ ${S.server.boosts}`;
-        chip.title = `${S.server.boosts} boosts · ${S.server.tier || 0} perk tiers`;
+        chip.title = `${S.server.boosts} flares · ${S.server.tier || 0} perk tiers`;
         chip.onclick = openBoosts;
     }
     $('server-menu-btn').classList.toggle('hidden', !server);
@@ -100,6 +109,7 @@ function renderFriends() {
     grid.style.display = '';
     S.friends.forEach(u => {
         const c = h('div', 'friend-card');
+        if (u.glow) { c.classList.add('glow'); c.style.setProperty('--pg', u.glow); }
         const meta = h('div', 'meta');
         const nm = h('strong', '', u.username || u.email); nm.style.color = nameColour(u);
         meta.append(nm);
@@ -154,7 +164,9 @@ function renderMain() {
     const icon = $('chat-icon');
     icon.textContent = '';
     if (isServer) {
-        icon.innerHTML = ch && ch.kind === 'v' ? ICON.speaker : ICON.hash;
+        if (S.server.logo && !(ch && ch.kind === 'v')) {
+            const im = h('img', 'topbar-logo'); im.src = S.server.logo; im.alt = ''; icon.append(im);
+        } else icon.innerHTML = ch && ch.kind === 'v' ? ICON.speaker : ICON.hash;
         $('chat-name').textContent = ch ? ch.name : S.server.name;
         $('chat-name').style.color = S.server.accent || '';
         $('chat-sub').textContent = ch ? S.server.name : '';
@@ -164,6 +176,11 @@ function renderMain() {
         $('chat-name').textContent = n;
         $('chat-name').style.color = '';
         $('chat-sub').textContent = '';
+    }
+    const tb = document.querySelector('#view-chat .topbar');
+    if (tb) {
+        tb.classList.toggle('has-banner', isServer && !!S.server.banner);
+        tb.style.backgroundImage = isServer && S.server.banner ? `linear-gradient(90deg, rgba(6,12,25,.55), rgba(6,12,25,.85)), url("${S.server.banner}")` : '';
     }
     $('invite-btn').classList.toggle('hidden', !isServer);
     $('members-btn').classList.remove('hidden');
@@ -204,6 +221,8 @@ function renderEmpty() {
 function renderDmCard() {
     const u = S.dm, card = $('dm-card');
     if (!u) return;
+    card.classList.toggle('glow', !!u.glow);
+    if (u.glow) card.style.setProperty('--pg', u.glow); else card.style.removeProperty('--pg');
     const n = u.username || u.email, body = h('div', 'dm-body'), about = h('div', 'dm-about');
     about.append(h('h5', '', 'About me'), h('p', '', u.bio || 'No bio yet.'));
     const nm = h('strong', '', n); nm.style.color = nameColour(u);
@@ -240,6 +259,8 @@ function renderMembers() {
 let S_curMsgs = [];
 const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\uFE0F|\u200D|[0-9#*]\uFE0F?\u20E3|\s)+$/u;
 const isEmojiOnly = (t) => { const s = String(t || '').trim(); return s.length > 0 && s.length <= 60 && /\p{Extended_Pictographic}/u.test(s) && EMOJI_ONLY.test(s); };
+const STICKER_RE = /^\[\[sk:(https:\/\/res\.cloudinary\.com\/[^\]\s]+)\]\]$/;
+const stickerUrl = (t) => { const m = STICKER_RE.exec(String(t || '').trim()); return m ? m[1] : ''; };
 function renderMessages(list, force) {
     S_curMsgs = list;
     const box = $('messages');
@@ -253,13 +274,19 @@ function renderMessages(list, force) {
     const start = h('div', 'msg-start');
     const big = h('div', 'big');
     if (S.view === 'server') {
-        big.innerHTML = ICON.hash;
+        if (S.server.logo) { const im = h('img', 'start-logo'); im.src = S.server.logo; im.alt = ''; big.append(im); }
+        else big.innerHTML = ICON.hash;
         const ch = curChannel();
         start.append(big, h('h2', '', `Welcome to #${ch ? ch.name : ''}`), h('p', '', `This is the start of the #${ch ? ch.name : ''} channel.`));
     } else {
         const n = S.dm.username || S.dm.email;
         big.innerHTML = ICON.chat;
         start.append(big, h('h2', '', n), h('p', '', `This is the beginning of your conversation with ${n}.`));
+    }
+    if (S.view === 'server' && S.server && S.server.banner) {
+        const bn = h('div', 'chat-banner');
+        bn.style.backgroundImage = `url("${S.server.banner}")`;
+        box.append(bn);
     }
     box.append(start);
 
@@ -281,8 +308,15 @@ function renderMessages(list, force) {
             head.append(name, ...(m.author.plus ? [h('span', 'plus-badge', '✦ PLUS')] : []), time);
             body.append(head);
         }
-        const [txt, mentionsMe] = richText(m.text, S.view === 'server' && !!S.server && m.author.id === S.server.owner); // only the server owner can ping @everyone / @here
-        if (isEmojiOnly(m.text)) txt.classList.add('emoji-only');
+        const sticker = stickerUrl(m.text);
+        let txt, mentionsMe = false;
+        if (sticker) {
+            txt = h('img', 'sticker-img');
+            txt.src = sticker; txt.alt = 'sticker'; txt.loading = 'lazy';
+        } else {
+            [txt, mentionsMe] = richText(m.text, S.view === 'server' && !!S.server && m.author.id === S.server.owner); // only the server owner can ping @everyone / @here
+            if (isEmojiOnly(m.text)) txt.classList.add('emoji-only');
+        }
         body.append(txt);
         if (m.rx && m.rx.length) body.append(reactRow(m));
         if (mentionsMe) row.classList.add('mentioned');
@@ -486,7 +520,7 @@ let recents = [];
 try { recents = (JSON.parse(localStorage.getItem(RECENT_KEY)) || []).filter(e => typeof e === 'string' && e); } catch { recents = []; }
 const SHORT = { 'Smileys & emotion': 'Smileys', 'People & body': 'People', 'Animals & nature': 'Nature', 'Food & drink': 'Food', 'Travel & places': 'Travel', 'Activities': 'Activity', 'Objects': 'Objects', 'Symbols': 'Symbols', 'Flags': 'Flags' };
 const GICON = { 'Recent': '🕘', 'Smileys & emotion': '😀', 'People & body': '👋', 'Animals & nature': '🐻', 'Food & drink': '🍔', 'Travel & places': '✈️', 'Activities': '⚽', 'Objects': '💡', 'Symbols': '❤️', 'Flags': '🏳️' };
-const EMOJI_GROUPS = [
+const BASE_GROUPS = [
     { n: 'Recent', icon: GICON.Recent, list: () => recents },
     ...(window.EMOJI_GROUPS || []).map(g => ({
         n: g.n, icon: GICON[g.n],
@@ -495,6 +529,23 @@ const EMOJI_GROUPS = [
             : g.n === 'Flags' ? [...flagSet] : g.e.split(' ')
     }))
 ];
+let EMOJI_GROUPS = [...BASE_GROUPS];
+const customEmoji = new Map();
+let customStickers = [];
+function rebuildEmojiGroups() {
+    customEmoji.clear();
+    customStickers = [];
+    const s = S.server;
+    if (s) {
+        (s.emoji || []).forEach(e => { if (e && e.n && e.u) customEmoji.set(e.n, e.u); });
+        customStickers = (s.stickers || []).filter(e => e && e.n && e.u);
+    }
+    EMOJI_GROUPS = [
+        ...BASE_GROUPS,
+        ...(customEmoji.size ? [{ n: 'Server', icon: '🖼️', kind: 'custom', list: () => [...customEmoji.keys()] }] : []),
+        ...(customStickers.length ? [{ n: 'Stickers', icon: '🏷️', kind: 'sticker', list: () => customStickers.map(x => x.n) }] : [])
+    ];
+}
 const head = h('div', 'emoji-head');
 const countEl = h('span', 'emoji-count', '');
 const searchEl = h('input', 'emoji-search');
@@ -507,7 +558,9 @@ let activeEmoji = 0, emojiQuery = '', searchAll = null, searchResults = [];
 const groupCache = new Map();
 function groupList(i) {
     const g = EMOJI_GROUPS[i];
+    if (!g) return [];
     if (g.n === 'Recent') return recents;
+    if (g.kind) return g.list();
     if (!groupCache.has(i)) groupCache.set(i, [...new Set(g.list())]);
     return groupCache.get(i);
 }
@@ -522,12 +575,37 @@ function addRecent(e) {
     try { localStorage.setItem(RECENT_KEY, JSON.stringify(recents)); } catch {}
     if (activeEmoji === 0 && !emojiQuery) paintBody();
 }
+function insertText(t) { input.setRangeText(t, input.selectionStart, input.selectionEnd, 'end'); input.focus(); autosize(); }
 function insertEmoji(e) {
-    input.setRangeText(e, input.selectionStart, input.selectionEnd, 'end'); input.focus(); autosize(); addRecent(e);
+    insertText(e); addRecent(e);
+}
+function sendSticker(u) {
+    pop.classList.add('hidden');
+    if (!input || S.sending) return;
+    input.value = `[[sk:${u}]]`;
+    autosize();
+    const form = $('chat-form');
+    if (typeof form.requestSubmit === 'function') form.requestSubmit(); else form.dispatchEvent(new Event('submit', { cancelable: true }));
 }
 function emojiCell(e) {
+    const g = EMOJI_GROUPS[activeEmoji];
     const b = h('button', 'emoji-cell');
     b.type = 'button'; b.tabIndex = -1;
+    if (g && g.kind === 'custom') {
+        b.classList.add('cust'); b.title = `:${e}:`; b.setAttribute('aria-label', e);
+        const img = h('img'); img.src = customEmoji.get(e); img.alt = e; img.loading = 'lazy';
+        b.append(img);
+        b.onclick = () => insertText(`:${e}: `);
+        return b;
+    }
+    if (g && g.kind === 'sticker') {
+        const st = customStickers.find(x => x.n === e);
+        b.classList.add('cust'); b.title = `${e} — send sticker`; b.setAttribute('aria-label', e);
+        const img = h('img'); img.src = st ? st.u : ''; img.alt = e; img.loading = 'lazy';
+        b.append(img);
+        b.onclick = () => { if (st) sendSticker(st.u); };
+        return b;
+    }
     const name = emojiArt.nameOf(e);
     b.title = name ? `${name} — ${e}` : e;
     b.setAttribute('aria-label', name || e);
@@ -574,14 +652,20 @@ searchEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && emojiQuery && searchResults[0]) { e.preventDefault(); insertEmoji(searchResults[0]); }
     if (e.key === 'Escape') { e.stopPropagation(); if (searchEl.value) { searchEl.value = ''; runSearch(); } else { pop.classList.add('hidden'); } }
 });
-EMOJI_GROUPS.forEach((g, i) => {
-    const t = h('button', 'emoji-tab' + (i === 0 ? ' on' : ''));
-    t.type = 'button'; t.tabIndex = -1; t.title = g.n; t.setAttribute('aria-label', g.n);
-    t.append(emojiArt.node(g.icon, 'tab-e'));
-    t.onclick = () => { searchEl.value = ''; emojiQuery = ''; paintEmoji(i); body.scrollTop = 0; };
-    tabs.append(t);
-});
-paintEmoji(0);
+function rebuildEmojiTabs() {
+    rebuildEmojiGroups();
+    if (activeEmoji >= EMOJI_GROUPS.length) activeEmoji = 0;
+    tabs.textContent = '';
+    EMOJI_GROUPS.forEach((g, i) => {
+        const t = h('button', 'emoji-tab' + (i === activeEmoji ? ' on' : ''));
+        t.type = 'button'; t.tabIndex = -1; t.title = g.n; t.setAttribute('aria-label', g.n);
+        t.append(emojiArt.node(g.icon, 'tab-e'));
+        t.onclick = () => { searchEl.value = ''; emojiQuery = ''; paintEmoji(i); body.scrollTop = 0; };
+        tabs.append(t);
+    });
+    paintEmoji(activeEmoji);
+}
+rebuildEmojiTabs();
 
 function openProfile(tab) {
     $('profile-msg').textContent = '';
@@ -591,12 +675,15 @@ function openProfile(tab) {
     $('profile-bio').maxLength = plus ? 400 : 160;
     $('profile-bio').value = S.me?.bio || ''; syncBioCount();
     $('profile-status').value = S.me?.statusText || '';
-    $('profile-status').disabled = !plus;
     $('plus-lock').classList.toggle('hidden', plus);
-    $('st-plus').classList.toggle('hidden', plus);
+    $('glow-plus').classList.toggle('hidden', plus);
     $('ac-plus').classList.toggle('hidden', plus);
     pend.ac = plus ? (S.me?.accent || '') : '';
+    pend.pg = plus ? (S.me?.glow || '') : '';
     paintAccents(plus);
+    paintGlow(plus);
+    syncStatusTtl();
+    $('pf-ava').classList.toggle('glow', plus && !!pend.pg);
     pend.pf = S.me?.avatar || ''; paint('pf', $('profile-name').value);
     $('dev-toggle').checked = dev();
     openModal('modal-profile');
@@ -613,6 +700,59 @@ function paintAccents(plus) {
         box.append(b);
     });
 }
+function paintGlow(plus) {
+    const box = $('glow-pick'); box.textContent = '';
+    ACCENTS.forEach(c => {
+        const b = h('button', 'accent-swatch' + (pend.pg === c ? ' on' : ''), '');
+        b.type = 'button'; b.title = c; b.style.background = c;
+        b.style.opacity = plus ? '' : '.45';
+        b.onclick = () => { if (!plus) return; pend.pg = pend.pg === c ? '' : c; paintGlow(plus); paintGlowPreview(plus); };
+        box.append(b);
+    });
+    const inp = $('glow-custom');
+    inp.value = /^#[0-9a-f]{6}$/i.test(pend.pg) ? pend.pg : '#ffd36b';
+    inp.disabled = !plus;
+    inp.style.opacity = plus ? '' : '.45';
+    paintGlowPreview(plus);
+}
+function paintGlowPreview(plus) {
+    const a = $('pf-ava');
+    a.classList.toggle('glow', plus && !!pend.pg);
+    if (plus && pend.pg) a.style.setProperty('--pg', pend.pg); else a.style.removeProperty('--pg');
+}
+$('glow-custom').oninput = () => { if (!(S.me && S.me.plus)) return; pend.pg = $('glow-custom').value; paintGlow(true); };
+
+/* status expiry: the select stores a TTL in seconds; "custom" reads the hours box */
+function statusSeconds() {
+    const v = $('status-ttl').value;
+    if (v === 'custom') return Math.max(1, Math.round(Number($('status-custom').value) || 1)) * 3600;
+    return Math.round(Number(v) || 0);
+}
+function paintStatusHint() {
+    const text = $('profile-status').value.trim(), secs = statusSeconds();
+    $('status-expiry').textContent = !text
+        ? 'No status set — everyone can set one, free.'
+        : !secs
+            ? 'Your status stays until you change it.'
+            : `Your status will clear itself in ${fmtDur(secs)}.`;
+}
+function syncStatusTtl() {
+    const until = (S.me && S.me.statusUntil) || 0;
+    const left = until ? Math.max(0, until - Math.floor(Date.now() / 1000)) : 0;
+    const fixed = ['1800', '3600', '14400', '28800', '86400', '259200', '604800'];
+    let val = '0';
+    if (left) {
+        const exact = fixed.find(v => Math.abs(Number(v) - left) < 90);
+        if (exact) val = exact;
+        else { val = 'custom'; $('status-custom').value = String(Math.max(1, Math.round(left / 3600))); }
+    }
+    $('status-ttl').value = val;
+    $('status-custom-wrap').classList.toggle('hidden', val !== 'custom');
+    paintStatusHint();
+}
+$('status-ttl').onchange = () => { $('status-custom-wrap').classList.toggle('hidden', $('status-ttl').value !== 'custom'); paintStatusHint(); };
+$('status-custom').oninput = paintStatusHint;
+$('profile-status').oninput = paintStatusHint;
 $('profile-bio').addEventListener('input', syncBioCount);
 function settingsTab(name) {
     document.querySelectorAll('#pf-tabs .tab').forEach(t => t.classList.toggle('on', t.dataset.tab === name));
@@ -637,9 +777,9 @@ $('sv-form').onsubmit = async (e) => {
 $('profile-form').onsubmit = async (e) => {
     e.preventDefault();
     const plus = !!(S.me && S.me.plus);
-    const out = await post({ action: 'profile-update', username: $('profile-name').value, avatar: pend.pf, bio: $('profile-bio').value, st: $('profile-status').value, ac: plus ? (pend.ac || '') : '' });
+    const out = await post({ action: 'profile-update', username: $('profile-name').value, avatar: pend.pf, bio: $('profile-bio').value, st: $('profile-status').value, sx: statusSeconds(), ac: plus ? (pend.ac || '') : '', pg: plus ? (pend.pg || '') : '' });
     if (!out.res.ok) { $('profile-msg').textContent = out.data.error || 'Could not save.'; return; }
-    Object.assign(S.me, { username: out.data.username, avatar: out.data.avatar, bio: out.data.bio, statusText: out.data.statusText || '', accent: out.data.accent || '' });
+    Object.assign(S.me, { username: out.data.username, avatar: out.data.avatar, bio: out.data.bio, statusText: out.data.statusText || '', statusUntil: out.data.statusUntil || 0, accent: out.data.accent || '', glow: out.data.glow || '' });
     setMe(S.me);
     closeModals(); toast('Profile updated.');
     loadMessages(true); loadMembers();
@@ -681,7 +821,7 @@ function logText(l) {
         case 'plus_grant': return `${a} turned Pratr Plus ${l.x} for ${u}`;
         case 'plus_expire': return `${a}’s Plus plan ended (${l.x})`;
         case 'boost_grant': return `${a} received ${l.x}`;
-        case 'server_boost': return `${a} boosted the server: ${l.x}`;
+        case 'server_boost': return `${a} flared the server: ${l.x}`;
         case 'server_perk': return `${a} changed a server perk: ${l.x}`;
         case 'voice_leave': return `${a} left voice channel ${l.cn} after ${fmtDur(l.d)}`;
         default: return `${a}: ${l.ty}`;
@@ -755,11 +895,12 @@ async function kickMember(m) {
     toast(`${m.username} was kicked.`); loadMembers();
 }
 
-/* ---------- boosts & perks ---------- */
+/* ---------- flares & perks ---------- */
 let boostData = null;
 async function openBoosts() {
     if (!S.server) return;
     $('boost-msg').textContent = '';
+    $('boost-msg').style.color = '';
     openModal('modal-boosts');
     await loadBoosts();
 }
@@ -768,28 +909,47 @@ async function loadBoosts() {
     const sid = S.server.id;
     const out = await post({ action: 'boost-info', id: sid });
     if (!S.server || S.server.id !== sid) return;
-    if (!out.res.ok) { $('boost-sub').textContent = out.data.error || 'Could not load boosts.'; return; }
+    if (!out.res.ok) { $('boost-sub').textContent = out.data.error || 'Could not load flares.'; return; }
     boostData = out.data;
     paintBoosts();
+}
+function pickImage(cb) {
+    const inp = h('input');
+    inp.type = 'file'; inp.accept = 'image/*'; inp.style.display = 'none';
+    document.body.append(inp);
+    inp.onchange = () => { const f = inp.files[0]; inp.remove(); if (f) cb(f); };
+    inp.click();
 }
 function paintBoosts() {
     const d = boostData;
     if (!d) return;
-    $('boost-sub').textContent = `${d.server} · boosts are permanent and never expire`;
+    const admin = !!(S.me && S.me.admin);
+    $('boost-sub').textContent = `${d.server} · flares are permanent and never expire`;
     $('boost-count').textContent = String(d.boosts);
     $('boost-tier').textContent = String(d.tier);
     $('boost-mine').textContent = String(d.mine);
     const locked = d.available.filter(p => p.at > d.boosts).sort((a, b) => a.at - b.at);
     $('boost-next').textContent = !d.plus
-        ? 'Pratr Plus gives you 2 boosts every month. Boosts you already own are kept forever.'
+        ? 'Pratr Plus gives you 2 flares every month. Flares you already own are kept forever.'
         : locked.length
-            ? `Next perk: ${locked[0].n} at ${locked[0].at} boosts — ${locked[0].at - d.boosts} more to go. You get +2 boosts every month${d.nextBoosts ? `, next on ${plusDate(d.nextBoosts)}` : ''}.`
-            : `Every perk is unlocked. You get +2 boosts every month${d.nextBoosts ? `, next on ${plusDate(d.nextBoosts)}` : ''}.`;
+            ? `Next perk: ${locked[0].n} at ${locked[0].at} flares — ${locked[0].at - d.boosts} more to go. You get +2 flares every month${d.nextBoosts ? `, next on ${plusDate(d.nextBoosts)}` : ''}.`
+            : `Every perk is unlocked. You get +2 flares every month${d.nextBoosts ? `, next on ${plusDate(d.nextBoosts)}` : ''}.`;
     $('boost-1').disabled = d.mine < 1;
     $('boost-2').disabled = d.mine < 2;
-    $('boost-1').textContent = 'Boost ×1';
-    $('boost-2').textContent = 'Boost ×2';
-    $('boost-1').title = $('boost-2').title = d.mine ? `${d.mine} available` : 'No boosts available';
+    $('boost-1').textContent = 'Flare ×1';
+    $('boost-2').textContent = 'Flare ×2';
+    $('boost-1').title = $('boost-2').title = d.mine ? `${d.mine} available` : 'No flares available';
+
+    // Admins can apply a big batch at once after topping up their own balance.
+    const acts = document.querySelector('#modal-boosts .boost-actions');
+    let big = $('boost-100');
+    if (!big && acts) {
+        big = h('button', 'btn ghost hidden', 'Flare ×100');
+        big.id = 'boost-100'; big.type = 'button';
+        big.onclick = () => spendBoosts(100);
+        acts.append(big);
+    }
+    if (big) { big.classList.toggle('hidden', !admin); big.disabled = d.mine < 100; big.title = admin ? `${d.mine} available` : ''; }
 
     const box = $('boost-perks');
     box.textContent = '';
@@ -800,7 +960,7 @@ function paintBoosts() {
         const info = h('div', 'perk-info');
         info.append(h('strong', '', p.n), h('small', '', p.d));
         const side = h('div', 'perk-side');
-        const tier = h('em', 'perk-tier', `${p.at} boost${p.at === 1 ? '' : 's'}`);
+        const tier = h('em', 'perk-tier', `${p.at} flare${p.at === 1 ? '' : 's'}`);
         side.append(tier);
         if (!unlocked) side.append(h('span', 'perk-lock', `${p.at - d.boosts} more`));
         else if (owner) {
@@ -814,16 +974,128 @@ function paintBoosts() {
         box.append(row);
     });
 
+    $('boost-admin').classList.toggle('hidden', !admin);
+    if (admin) { const who = $('boost-admin-user'); if (!who.value) who.value = (S.me && S.me.username) || ''; }
+    renderBoostAssets(d);
+
     const hist = $('boost-hist');
     hist.textContent = '';
-    if (!d.history.length) hist.append(h('div', 'side-empty', 'No boosts yet. Be the first to boost this server.'));
-    else d.history.forEach(x => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(x.t)), h('span', '', `Boosted by ${x.by}`)); hist.append(r); });
+    if (!d.history.length) hist.append(h('div', 'side-empty', 'No flares yet. Be the first to flare this server.'));
+    else d.history.forEach(x => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(x.t)), h('span', '', `Flared by ${x.by}`)); hist.append(r); });
 
     const grants = $('boost-grants');
     grants.textContent = '';
-    if (!d.grants.length) grants.append(h('div', 'side-empty', 'Your +2 monthly boosts will be saved here.'));
-    else d.grants.forEach(x => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(x.t)), h('span', '', x.x || '+2 boosts')); grants.append(r); });
+    if (!d.grants.length) grants.append(h('div', 'side-empty', 'Your +2 monthly flares will be saved here.'));
+    else d.grants.forEach(x => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(x.t)), h('span', '', x.x || '+2 flares')); grants.append(r); });
 }
+
+/* banner, logo, custom emoji and stickers — all managed here by the owner */
+function renderBoostAssets(d) {
+    const box = $('boost-assets');
+    box.textContent = '';
+    if (!d) return;
+    const owner = d.owner === S.me?.id, on = new Set(d.perks || []);
+    const sec = h('div', 'sec-title'); sec.append(h('span', '', 'Server art'));
+    box.append(sec);
+    [['banner', 'Animated banner', 2, 'Wide strip behind your server name. It pans slowly.'],
+     ['logo', 'Server logo', 4, 'Square logo with a glowing ring next to your server name.']].forEach(([key, label, at, blurb]) => {
+        const enabled = on.has(key);
+        const row = h('div', 'asset-row');
+        const prev = h('div', 'asset-prev' + (key === 'banner' ? ' wide' : ''));
+        if (d[key]) prev.style.background = `center/cover url("${d[key]}")`; else prev.textContent = key === 'banner' ? 'No banner' : 'No logo';
+        const info = h('div', 'asset-info');
+        info.append(h('strong', '', label), h('small', '', enabled ? blurb : `${label} unlocks at ${at} flares — then enable the perk above.`));
+        const btns = h('div', 'asset-btns');
+        if (owner) {
+            const up = h('button', 'btn ghost sm', 'Upload');
+            up.type = 'button'; up.disabled = !enabled;
+            up.onclick = () => pickImage(async (f) => {
+                if (f.size > 5e6) return toast('Image must be under 5 MB.', true);
+                const label0 = up.textContent; up.textContent = 'Uploading…'; up.disabled = true;
+                const url = await uploadImage(f, 'servers', key === 'banner' ? 'c_fill,g_auto,w_1200,h_400' : 'c_fill,g_auto,w_256,h_256');
+                up.textContent = label0; up.disabled = !enabled;
+                if (!url) return;
+                const out = await post({ action: 'server-asset', id: S.server.id, field: key, icon: url });
+                if (!out.res.ok) return toast(out.data.error || 'Could not save.', true);
+                Object.assign(S.server, out.data.server); d[key] = out.data.server[key];
+                await loadServers(); renderAll(); renderBoostAssets(d);
+                toast(`${label} updated.`);
+            });
+            btns.append(up);
+            if (d[key]) {
+                const rm = h('button', 'linkbtn', 'Remove'); rm.type = 'button';
+                rm.onclick = async () => {
+                    const out = await post({ action: 'server-asset', id: S.server.id, field: key, icon: '' });
+                    if (!out.res.ok) return toast(out.data.error || 'Failed.', true);
+                    Object.assign(S.server, out.data.server); d[key] = '';
+                    await loadServers(); renderAll(); renderBoostAssets(d);
+                    toast(`${label} removed.`);
+                };
+                btns.append(rm);
+            }
+        }
+        row.append(prev, info, btns);
+        box.append(row);
+    });
+    box.append(assetSection('Custom emoji', d.emoji || [], 'emoji', owner, d));
+    box.append(assetSection('Stickers', d.stickers || [], 'sticker', owner, d));
+}
+function assetSection(title, list, kind, owner, d) {
+    const wrap = h('div'), cap = kind === 'emoji' ? 50 : 30;
+    const sec = h('div', 'sec-title');
+    sec.append(h('span', '', `${title} — ${list.length}/${cap}`));
+    wrap.append(sec);
+    if (list.length) {
+        const grid = h('div', 'asset-grid');
+        list.forEach(x => {
+            const cell = h('div', 'asset-cell');
+            const img = h('img'); img.src = x.u; img.alt = x.n; img.loading = 'lazy'; img.title = kind === 'emoji' ? `:${x.n}:` : x.n;
+            cell.append(img, h('small', '', kind === 'emoji' ? `:${x.n}:` : x.n));
+            if (owner) {
+                const rm = h('button', 'asset-x', '×'); rm.type = 'button'; rm.title = 'Remove';
+                rm.onclick = async () => {
+                    const out = await post({ action: `${kind}-remove`, id: S.server.id, name: x.n });
+                    if (!out.res.ok) return toast(out.data.error || 'Failed.', true);
+                    d.emoji = out.data.emoji; d.stickers = out.data.stickers;
+                    Object.assign(S.server, { emoji: d.emoji, stickers: d.stickers });
+                    renderBoostAssets(d); toast('Removed.');
+                };
+                cell.append(rm);
+            }
+            grid.append(cell);
+        });
+        wrap.append(grid);
+    } else wrap.append(h('div', 'side-empty', `No ${title.toLowerCase()} yet.`));
+    if (owner) {
+        const form = h('div', 'asset-add');
+        const nm = h('input');
+        nm.placeholder = kind === 'emoji' ? 'emoji_name' : 'sticker_name';
+        nm.maxLength = 20; nm.autocomplete = 'off'; nm.spellcheck = false;
+        const add = h('button', 'btn primary sm', 'Upload + add');
+        add.type = 'button';
+        add.onclick = () => {
+            const name = nm.value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+            if (!name) return toast('Give it a name first (letters, numbers, underscores).', true);
+            pickImage(async (f) => {
+                if (f.size > 5e6) return toast('Image must be under 5 MB.', true);
+                add.textContent = 'Uploading…'; add.disabled = true;
+                const url = await uploadImage(f, 'servers', kind === 'emoji' ? 'c_fit,w_128,h_128' : 'c_fit,w_256,h_256');
+                add.textContent = 'Upload + add'; add.disabled = false;
+                if (!url) return;
+                const out = await post({ action: `${kind}-add`, id: S.server.id, name, icon: url });
+                if (!out.res.ok) return toast(out.data.error || 'Could not add.', true);
+                d.emoji = out.data.emoji; d.stickers = out.data.stickers;
+                Object.assign(S.server, { emoji: d.emoji, stickers: d.stickers });
+                renderBoostAssets(d);
+                toast(`${kind === 'emoji' ? 'Emoji' : 'Sticker'} added.`);
+            });
+        };
+        form.append(nm, add);
+        wrap.append(form);
+    }
+    return wrap;
+}
+
 function accentPicker(current, active, pick) {
     const box = h('div', 'accent-pick mini');
     ACCENTS.forEach(c => {
@@ -836,7 +1108,7 @@ function accentPicker(current, active, pick) {
 }
 async function setPerk(p, on, colour) {
     const out = await post({ action: 'server-perk', id: S.server.id, perk: p.k, on, colour: on ? (colour || '') : '' });
-    if (!out.res.ok) { $('boost-msg').textContent = out.data.error || 'Could not update the perk.'; return; }
+    if (!out.res.ok) { $('boost-msg').style.color = ''; $('boost-msg').textContent = out.data.error || 'Could not update the perk.'; return; }
     $('boost-msg').textContent = '';
     Object.assign(S.server, out.data.server);
     await loadServers();
@@ -847,20 +1119,35 @@ async function setPerk(p, on, colour) {
 async function spendBoosts(n) {
     if (!S.server) return;
     $('boost-msg').textContent = '';
+    $('boost-msg').style.color = '';
     const out = await post({ action: 'server-boost', id: S.server.id, count: n });
-    if (!out.res.ok) { $('boost-msg').textContent = out.data.error || 'Could not boost.'; return; }
+    if (!out.res.ok) { $('boost-msg').textContent = out.data.error || 'Could not flare.'; return; }
     $('boost-msg').style.color = 'var(--bone)';
-    $('boost-msg').textContent = `Nice — ${n} boost${n === 1 ? '' : 's'} added. This server now has ${out.data.boosts}.`;
-    if (S.server) { S.server.boosts = out.data.boosts; S.server.tier = out.data.tier; S.server.perks = out.data.perks; S.server.accent = out.data.accent; }
+    $('boost-msg').textContent = `Nice — ${n} flare${n === 1 ? '' : 's'} added. This server now has ${out.data.boosts}.`;
+    if (S.server) Object.assign(S.server, { boosts: out.data.boosts, tier: out.data.tier, perks: out.data.perks, accent: out.data.accent, banner: out.data.banner || '', logo: out.data.logo || '', emoji: out.data.emoji || [], stickers: out.data.stickers || [] });
     await refreshMe();
     await loadServers();
     renderAll();
     await loadBoosts();
-    toast(`+${n} boost${n === 1 ? '' : 's'} applied.`);
+    toast(`+${n} flare${n === 1 ? '' : 's'} applied.`);
+}
+async function adminFlares(sign) {
+    const u = $('boost-admin-user').value.trim() || (S.me && S.me.username);
+    if (!u) return;
+    const n = Math.max(1, Math.min(1000000, Math.round(Number($('boost-admin-count').value) || 100))) * sign;
+    const out = await post({ action: 'flare-grant', username: u, count: n });
+    if (!out.res.ok) { $('boost-msg').style.color = ''; $('boost-msg').textContent = out.data.error || 'Failed.'; return; }
+    $('boost-msg').style.color = 'var(--bone)';
+    $('boost-msg').textContent = `${out.data.username} now has ${out.data.boosts} flares (${n > 0 ? '+' : ''}${n}).`;
+    const mine = S.me && (u.toLowerCase() === String(S.me.username || '').toLowerCase() || u.toLowerCase() === String(S.me.email || '').toLowerCase());
+    if (mine) await refreshMe();
+    await loadBoosts();
 }
 $('boost-1').onclick = () => spendBoosts(1);
 $('boost-2').onclick = () => spendBoosts(2);
 $('boost-refresh').onclick = loadBoosts;
+$('boost-admin-give').onclick = () => adminFlares(1);
+$('boost-admin-take').onclick = () => adminFlares(-1);
 
 /* ---------- reactions ---------- */
 const QUICK = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉', '👀', '💯'];

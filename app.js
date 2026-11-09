@@ -32,7 +32,7 @@ const dot = (st) => h('i', dotCls(st));
 function statEl(on, total) { const s = h('small', 'stat'); s.append(h('i', 'pdot'), `${on} online`, h('i', 'pdot off'), `${total - on} offline`); return s; }
 const bg = (url, name) => url ? `center/cover url("${url}")` : color(name || '?');
 function avatar(name, cls = '', url = '') { const a = h('div', 'ava ' + cls, url ? '' : ini(name)); a.style.background = bg(url, name); return a; }
-function userAva(u, cls = '') { const a = avatar(u.username || u.email, cls, u.avatar); if (u.plus) { a.classList.add('plus'); if (u.accent) a.style.setProperty('--ac', u.accent); } return a; }
+function userAva(u, cls = '') { const a = avatar(u.username || u.email, cls, u.avatar); if (u.plus) { a.classList.add('plus'); const c = u.glow || u.accent; if (c) a.style.setProperty('--ac', c); if (u.glow) { a.classList.add('glow'); a.style.setProperty('--pg', u.glow); } } return a; }
 const nameColour = (u) => u.plus && u.accent ? u.accent : u.plus ? '#ffd36b' : color(u.username || u.email).replace('48%', '70%');
 const isOwner = () => !!(S.me && S.server && S.server.owner === S.me.id);
 const curChannel = () => S.channels.find(c => c.id === S.channelId) || null;
@@ -155,6 +155,7 @@ function setMe(u) {
     $('me-name').style.color = $('hp-name').style.color = u.plus ? (u.accent || '#ffd36b') : '';
     $('me-email').textContent = $('hp-email').textContent = u.email || '';
     $('hp-status').textContent = u.statusText || '';
+    $('hp-status').title = u.statusText && u.statusUntil ? `Expires ${new Date(u.statusUntil * 1000).toLocaleString()}` : '';
     $('hp-status').classList.toggle('hidden', !u.statusText);
     $('hp-bio').textContent = u.bio || '';
     $('hp-bio').classList.toggle('hidden', !u.bio);
@@ -162,6 +163,11 @@ function setMe(u) {
     $('me-ava').querySelector('.dot').className = dotCls(u.status);
     $('me-initial').textContent = $('hp-ava').textContent = letter;
     $('me-ava').style.background = $('hp-ava').style.background = bg(u.avatar, name);
+    // Plus glow: the ring and the profile card share the same colour picked in Settings.
+    const glow = u.plus ? (u.glow || '') : '';
+    [$('me-ava'), $('hp-ava')].forEach(a => { a.classList.toggle('glow', !!glow); if (glow) a.style.setProperty('--pg', glow); else a.style.removeProperty('--pg'); });
+    const card = document.querySelector('.profile-card');
+    if (card) { card.classList.toggle('glow', !!glow); if (glow) card.style.setProperty('--pg', glow); else card.style.removeProperty('--pg'); }
 }
 
 async function boot() {
@@ -285,6 +291,7 @@ async function loadDiscover() {
     if (!list.length) grid.append(h('div', 'empty-note', 'No public servers found. Owners can list theirs in Server settings.'));
     list.forEach(s => {
         const c = h('div', 'disc-card'), b = h('div', 'disc-body'), btn = h('button', 'btn ' + (s.joined ? 'ghost' : 'primary'), s.joined ? 'Open' : 'Join');
+        if (s.banner) { c.classList.add('has-banner'); c.style.setProperty('--banner', `url("${s.banner}")`); }
         btn.onclick = async () => {
             if (!s.joined) {
                 const j = await post({ action: 'server-join-public', id: s.id });
@@ -295,9 +302,9 @@ async function loadDiscover() {
         };
         const name = h('strong', '', s.name);
         if (s.accent) name.style.color = s.accent;
-        if (s.boosts) { const star = h('em', 'badge boost', `✦ ${s.boosts}`); star.title = `${s.boosts} boosts · ${s.tier || 0} perk tiers`; name.append(' ', star); }
+        if (s.boosts) { const star = h('em', 'badge boost', `✦ ${s.boosts}`); star.title = `${s.boosts} flares · ${s.tier || 0} perk tiers`; name.append(' ', star); }
         b.append(name, h('p', '', s.desc || 'No description yet.'), statEl(s.online || 0, s.count), btn);
-        c.append(h('div', 'disc-top'), avatar(s.name, 'xl', s.icon), b);
+        c.append(h('div', 'disc-top'), avatar(s.name, 'xl', s.logo || s.icon), b);
         grid.append(c);
     });
 }
@@ -490,11 +497,33 @@ function linkEmbed(path) { // a rich card for pratr links pasted in chat
     }
     return null;
 }
+function customEmojiMap() {
+    const m = new Map();
+    if (S.view === 'server' && S.server && Array.isArray(S.server.emoji)) S.server.emoji.forEach(e => { if (e && e.n && e.u) m.set(e.n, e.u); });
+    return m;
+}
+const CUSTOM_TOKEN = /:([a-z0-9_]{2,20}):/g;
+function appendCustomEmoji(el, text, map) {
+    if (!map || !map.size) return appendLinks(el, text);
+    let last = 0;
+    text.replace(CUSTOM_TOKEN, (full, n, i) => {
+        const u = map.get(n);
+        if (!u) return full;
+        if (i > last) appendLinks(el, text.slice(last, i));
+        const img = h('img', 'custom-emoji');
+        img.src = u; img.alt = `:${n}:`; img.title = `:${n}:`; img.loading = 'lazy';
+        el.append(img);
+        last = i + full.length;
+        return full;
+    });
+    if (last < text.length) appendLinks(el, text.slice(last));
+}
 function richText(text, canAll) { // returns [element, mentionsMe]; text nodes only, so no HTML injection
     const t = h('div', 'text'), mine = (S.me?.username || '').toLowerCase();
+    const map = customEmojiMap();
     let me = false;
     segments(text, canAll ? [...mnames(), 'everyone', 'here'] : mnames()).forEach(s => {
-        if (typeof s === 'string') return appendLinks(t, s);
+        if (typeof s === 'string') return appendCustomEmoji(t, s, map);
         const all = canAll && /^(everyone|here)$/i.test(s.who), hit = all || s.who.toLowerCase() === mine; if (hit) me = true;
         t.append(h('span', 'mention' + (hit ? ' me' : '') + (all ? ' all' : ''), s.m));
     });
@@ -524,7 +553,10 @@ input.addEventListener('keydown', (e) => { // capture: runs before the Enter-to-
     else return;
     e.preventDefault(); e.stopImmediatePropagation();
 }, true);
-$('emoji-btn').onclick = () => pop.classList.toggle('hidden');
+$('emoji-btn').onclick = () => {
+    if (pop.classList.contains('hidden')) { if (typeof rebuildEmojiTabs === 'function') rebuildEmojiTabs(); pop.classList.remove('hidden'); }
+    else pop.classList.add('hidden');
+};
 document.addEventListener('click', (e) => { if (!e.target.closest('#emoji-pop, #emoji-btn')) pop.classList.add('hidden'); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') pop.classList.add('hidden'); });
 
@@ -533,11 +565,11 @@ $('dev-toggle').onchange = (e) => {
     try { localStorage.setItem('dev', e.target.checked ? '1' : '0'); } catch {}
     S.sig = ''; renderAll(); if (S.view !== 'home') loadMessages(true); // rebuild so right-click menus pick up the change
 };
-const pend = {}; // pending image URL per upload widget (pf = profile, sv = server); ac = picked Plus accent
-const ACCENTS = ['#ffd36b', '#ff8fa3', '#7ee2b8', '#7cc4ff', '#b99bff', '#ffab6b', '#5ee0d6', '#f0e9db']; // must match api/auth.js
+const pend = {}; // pending image URL per upload widget (pf = profile, sv = server); ac/pg = picked Plus colours
+const ACCENTS = ['#ffd36b', '#ff8fa3', '#7ee2b8', '#7cc4ff', '#b99bff', '#ffab6b', '#5ee0d6', '#f0e9db', '#ff5a4e', '#f472d0', '#8ef58a', '#6ea8ff', '#ffe45e', '#c6a4ff', '#ff9f43', '#9be7ff']; // must match api/auth.js
 const paint = (k, name) => { const el = $(k + '-ava'); el.textContent = pend[k] ? '' : ini(name); el.style.background = bg(pend[k], name); };
 
-async function uploadImage(file, kind) {
+async function uploadImage(file, kind, transform = 'c_fill,g_auto,w_256,h_256') {
     const sig = await post({ action: 'upload-sign', kind });
     if (!sig.res.ok) { toast(sig.data.error || 'Upload unavailable.', true); return ''; }
     const { cloud, key, timestamp, signature, folder } = sig.data, fd = new FormData();
@@ -545,7 +577,7 @@ async function uploadImage(file, kind) {
     try {
         const r = await fetch(`https://api.cloudinary.com/v1_1/${cloud}/image/upload`, { method: 'POST', body: fd });
         if (!r.ok) throw 0;
-        return (await r.json()).secure_url.replace('/upload/', '/upload/c_fill,g_auto,w_256,h_256,f_auto,q_auto/');
+        return (await r.json()).secure_url.replace('/upload/', `/upload/${transform},f_auto,q_auto/`);
     } catch { toast('Upload failed.', true); return ''; }
 }
 function wireUpload(k, kind, nameOf) {
@@ -657,8 +689,8 @@ async function loadPlusHistory() {
     const out = await post({ action: 'boost-history' });
     box.textContent = '';
     if (!out.res.ok) return void box.append(h('div', 'side-empty', out.data.error || 'Could not load history.'));
-    if (!out.data.history.length) return void box.append(h('div', 'side-empty', 'Nothing yet. Plan and boost events are saved here forever.'));
-    const LABEL = { plus_grant: 'Plus plan', plus_expire: 'Plan ended', boost_grant: 'Monthly boosts', server_boost: 'Server boost' };
+    if (!out.data.history.length) return void box.append(h('div', 'side-empty', 'Nothing yet. Plan and flare events are saved here forever.'));
+    const LABEL = { plus_grant: 'Plus plan', plus_expire: 'Plan ended', boost_grant: 'Flares', server_boost: 'Server flare' };
     out.data.history.forEach(l => {
         const r = h('div', 'logrow');
         r.append(h('time', '', stamp(l.t)), h('span', '', `${LABEL[l.ty] || l.ty} — ${l.x || ''}${l.server ? ` · ${l.server}` : ''}`));
@@ -666,25 +698,26 @@ async function loadPlusHistory() {
     });
 }
 function openPlus() {
-    const me = S.me || {}, has = !!me.plus, boosts = me.boosts || 0;
+    const me = S.me || {}, has = !!me.plus, flares = me.boosts || 0;
     const plan = $('plus-plan');
     plan.textContent = '';
     const line = (k, v) => { const r = h('div', 'plan-row'); r.append(h('span', '', k), h('b', '', v)); plan.append(r); };
     line('Plan', '1 month · $1');
     if (has) {
         if (me.plusUntil) line('Active until', plusDate(me.plusUntil));
-        line('Boosts available', String(boosts));
-        if (me.nextBoosts) line('Next +2 boosts', plusDate(me.nextBoosts));
+        line('Flares available', String(flares));
+        if (me.nextBoosts) line('Next +2 flares', plusDate(me.nextBoosts));
     } else {
         if (me.plusUntil) line('Ended on', plusDate(me.plusUntil));
-        line('Boosts kept', String(boosts));
+        line('Flares kept', String(flares));
     }
     $('plus-state').textContent = has
-        ? 'Your perks are active. Renewing adds another month and keeps every boost you already own.'
-        : me.plusUntil ? 'Your plan has ended, so Plus perks are paused. Your boosts, history and saved customisations are still here and come back when you renew.' : '';
+        ? 'Your perks are active. Renewing adds another month and keeps every flare you already own.'
+        : me.plusUntil ? 'Your plan has ended, so Plus perks are paused. Your flares, history and saved customisations are still here and come back when you renew.' : '';
     $('plus-buy').classList.toggle('hidden', has);
     $('plus-customize').classList.toggle('hidden', !has);
     $('plus-admin').classList.toggle('hidden', !(S.me && S.me.admin));
+    if (S.me && S.me.admin && !$('flare-user').value) $('flare-user').value = S.me.username || S.me.email || '';
     $('plus-msg').textContent = '';
     $('plus-msg').style.color = '';
     openModal('modal-plus');
@@ -710,8 +743,8 @@ async function plusGrant(on) {
     const out = await post({ action: 'plus-grant', username: u, on, days });
     if (!out.res.ok) { $('plus-msg').style.color = ''; $('plus-msg').textContent = out.data.error || 'Failed.'; return; }
     const msg = out.data.plus
-        ? `${out.data.username}: Plus active until ${plusDate(out.data.until)} · ${out.data.boosts} boosts${out.data.granted ? ` (+${out.data.granted} this month)` : ''}.`
-        : `${out.data.username}: Plus removed. Their ${out.data.boosts || 0} boosts are kept.`;
+        ? `${out.data.username}: Plus active until ${plusDate(out.data.until)} · ${out.data.boosts} flares${out.data.granted ? ` (+${out.data.granted} this month)` : ''}.`
+        : `${out.data.username}: Plus removed. Their ${out.data.boosts || 0} flares are kept.`;
     if (S.me && (u === S.me.username || (S.me.email && u.toLowerCase() === S.me.email.toLowerCase()))) {
         await refreshMe(); openPlus(); // openPlus clears the message box, so fill it afterwards
     }
@@ -724,11 +757,27 @@ $('plus-act').onclick = async () => {
     const out = await post({ action: 'activity', username: u });
     box.classList.remove('hidden'); box.textContent = '';
     if (!out.res.ok) return void box.append(h('div', 'side-empty', out.data.error || 'Failed.'));
-    box.append(h('div', 'side-empty', `${out.data.username}: ${fmtDur(out.data.voice)} in voice, ${out.data.msgs} messages · ${out.data.boosts || 0} boosts${out.data.plus ? ` · Plus until ${plusDate(out.data.plusUntil)}` : ''}`));
+    box.append(h('div', 'side-empty', `${out.data.username}: ${fmtDur(out.data.voice)} in voice, ${out.data.msgs} messages · ${out.data.boosts || 0} flares${out.data.plus ? ` · Plus until ${plusDate(out.data.plusUntil)}` : ''}`));
     out.data.logs.forEach(l => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(l.t)), h('span', '', logText(l))); box.append(r); });
 };
 $('plus-on').onclick = () => plusGrant(true);
 $('plus-off').onclick = () => plusGrant(false);
+
+/* admins can top up any balance (including their own) in one go */
+async function flareGrant(sign) {
+    const u = $('flare-user').value.trim() || (S.me && S.me.username);
+    if (!u) return;
+    const n = Math.max(1, Math.min(1000000, Math.round(Number($('flare-count').value) || 10))) * sign;
+    const out = await post({ action: 'flare-grant', username: u, count: n });
+    if (!out.res.ok) { $('plus-msg').style.color = ''; $('plus-msg').textContent = out.data.error || 'Failed.'; return; }
+    const mine = S.me && (u.toLowerCase() === String(S.me.username || '').toLowerCase() || u.toLowerCase() === String(S.me.email || '').toLowerCase());
+    if (mine) await refreshMe();
+    $('plus-msg').style.color = 'var(--bone)';
+    const applied = Number(out.data.delta) || 0;
+    $('plus-msg').textContent = `${out.data.username} now has ${out.data.boosts} flares (${applied > 0 ? '+' : ''}${applied}).`;
+}
+$('flare-give').onclick = () => flareGrant(1);
+$('flare-take').onclick = () => flareGrant(-1);
 
 /* ---------- unread / ping tracking (no per-message alerts; only pings badge, servers only) ---------- */
 S.unread = { channels: {}, dms: {} };

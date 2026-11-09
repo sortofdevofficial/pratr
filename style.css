@@ -444,3 +444,94 @@ body { background: radial-gradient(1200px 700px at -10% -10%, #10203f 0%, transp
 
 /* ---------- reduced motion ---------- */
 @media (prefers-reduced-motion: reduce) { *, #loadbar i, .skel, .modal-card, .tab-pane { animation: none !important; transition: none !important; } }
+
+/* ============================================================
+   v5: statuses for everyone, Plus glow, server art, Flares
+   ============================================================ */
+
+/* ---- modals: always reachable, even on short screens ---- */
+.modal { align-items: flex-start; overflow-y: auto; padding: clamp(10px, 2.5vw, 24px); }
+.modal-card { margin: auto; max-height: none; width: 100%; }
+.modal-card.wide { max-width: min(680px, 100%); }
+.modal .inline-form { flex-wrap: wrap; }
+.modal .inline-form input { flex: 1 1 150px; min-width: 0; }
+
+/* ---- two-column field rows ---- */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.two-col .field { margin-bottom: 14px; }
+@media (max-width: 480px) { .two-col { grid-template-columns: 1fr; gap: 0; } }
+
+input.colour-input { width: 100%; height: 42px; padding: 4px; border-radius: 10px; cursor: pointer; }
+input.colour-input:disabled { cursor: not-allowed; }
+
+/* ---- scale the shell so every option fits a laptop or phone ---- */
+.rail { width: clamp(60px, 6vw, 76px); }
+.rail-btn { width: clamp(42px, 4.2vw, 50px); height: clamp(42px, 4.2vw, 50px); }
+.side { width: clamp(206px, 21vw, 248px); }
+.members { width: clamp(196px, 19vw, 240px); }
+.topbar, .side-head { height: clamp(48px, 5vw, 54px); }
+.home-wrap { padding: clamp(16px, 3vw, 24px) clamp(12px, 2.5vw, 20px) 40px; }
+@media (max-width: 860px) {
+  .side { width: min(86vw, 300px); }
+  .modal-card, .modal-card.wide { max-width: 100%; }
+}
+
+/* ---- Plus profile glow: any colour, applied through --pg ---- */
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--pg, #ffd36b), 0 0 16px -2px var(--pg, #ffd36b); }
+  50%      { box-shadow: 0 0 0 3px var(--pg, #ffd36b), 0 0 30px 2px var(--pg, #ffd36b); }
+}
+@keyframes cardGlow {
+  0%, 100% { box-shadow: 0 0 0 1px var(--pg, #ffd36b), 0 0 26px -8px var(--pg, #ffd36b); }
+  50%      { box-shadow: 0 0 0 2px var(--pg, #ffd36b), 0 0 48px -4px var(--pg, #ffd36b); }
+}
+.ava.glow { box-shadow: 0 0 0 2px var(--pg, #ffd36b), 0 0 16px -2px var(--pg, #ffd36b); animation: glowPulse 2.6s ease-in-out infinite; }
+.profile-card.glow { border-color: var(--pg, #ffd36b); animation: cardGlow 3.4s ease-in-out infinite; }
+.friend-card.glow { border-color: var(--pg, #ffd36b); box-shadow: 0 0 22px -10px var(--pg, #ffd36b); }
+.dmcard.glow { box-shadow: inset 3px 0 0 var(--pg, #ffd36b); }
+
+/* ---- animated server banner, logo and start-of-channel art ---- */
+@keyframes bannerPan { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
+.side-head { background-size: cover; background-position: center; }
+.side-head.has-banner { background-size: 170% auto; animation: bannerPan 20s ease-in-out infinite alternate; }
+.side-logo { width: 26px; height: 26px; border-radius: 8px; object-fit: cover; flex: none; box-shadow: 0 0 0 2px rgba(255, 255, 255, .14), 0 0 14px -2px var(--coral); }
+.topbar.has-banner { background-size: 130% auto; background-position: center; }
+.topbar-logo { width: 26px; height: 26px; border-radius: 7px; object-fit: cover; }
+.start-logo { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.chat-banner { height: clamp(80px, 14vh, 150px); flex: none; background-size: cover; background-position: 50% 50%; animation: bannerPan 22s ease-in-out infinite alternate; border-bottom: 1px solid var(--line); }
+.disc-card.has-banner .disc-top { background-image: linear-gradient(180deg, rgba(6, 12, 25, .1), rgba(6, 12, 25, .55)), var(--banner); background-size: cover; background-position: center; }
+
+/* ---- custom emoji and stickers in messages ---- */
+.custom-emoji { width: 1.4em; height: 1.4em; object-fit: contain; vertical-align: -.3em; margin: 0 1px; }
+.sticker-img { max-width: 168px; max-height: 168px; border-radius: 12px; margin-top: 4px; display: block; }
+.emoji-cell.cust img { width: 30px; height: 30px; object-fit: contain; }
+
+/* ---- server art manager inside Flares & perks ---- */
+.asset-row { display: flex; align-items: center; gap: 12px; padding: 10px; background: var(--bg1); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 8px; }
+.asset-prev { width: 64px; height: 64px; flex: none; border-radius: 10px; background: var(--bg3) center/cover; display: grid; place-items: center; color: var(--dim); font-size: 10px; text-align: center; border: 1px solid var(--line); overflow: hidden; }
+.asset-prev.wide { width: 128px; height: 54px; }
+.asset-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.asset-info small { color: var(--mut); font-size: 12px; }
+.asset-btns { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: none; }
+.asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.asset-cell { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; background: var(--bg1); border: 1px solid var(--line); border-radius: 10px; }
+.asset-cell img { width: 40px; height: 40px; object-fit: contain; }
+.asset-cell small { color: var(--dim); font-size: 10px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-x { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%; background: rgba(255, 90, 78, .18); color: #ff8a80; font-size: 13px; line-height: 1; display: grid; place-items: center; }
+.asset-x:hover { background: var(--coral); color: #fff; }
+.asset-add { display: flex; gap: 8px; margin-bottom: 12px; }
+.asset-add input { flex: 1; min-width: 0; }
+@media (max-width: 520px) {
+  .asset-row { flex-wrap: wrap; }
+  .asset-btns { width: 100%; justify-content: flex-end; }
+  .asset-add { flex-direction: column; }
+}
+
+/* ---- compact phones: keep the composer and header readable ---- */
+@media (max-width: 520px) {
+  .topbar { padding: 0 12px; gap: 8px; }
+  .topbar h1 { font-size: 15px; }
+  .modal-card { padding: 20px 16px; border-radius: 16px; }
+  .boost-stats { gap: 6px; }
+  .sticker-img { max-width: 132px; max-height: 132px; }
+}
