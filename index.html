@@ -98,16 +98,21 @@
         <div class="home-wrap">
           <div class="panel profile-card">
             <div class="ava lg" id="hp-ava"></div>
-            <div class="meta"><strong id="hp-name"></strong><small id="hp-email"></small><small id="hp-bio"></small></div>
+            <div class="meta"><strong id="hp-name"></strong><small id="hp-email"></small><small id="hp-bio"></small><small id="hp-stats"></small></div>
             <button class="btn primary" id="hp-edit" type="button">Edit profile</button>
           </div>
           <div class="panel">
             <h3>Add a friend</h3>
-            <p class="hint">Enter their username or email. Friends can message you directly.</p>
+            <p class="hint">Enter their username or email. They have to accept before either of you can message.</p>
             <form id="friend-add-form" class="inline-form">
               <input id="friend-add-input" placeholder="Username or email" autocomplete="off" required>
-              <button type="submit" class="btn primary">Add friend</button>
+              <button type="submit" class="btn primary">Send request</button>
             </form>
+          </div>
+          <div class="panel hidden" id="req-panel">
+            <h3>Friend requests — <span id="req-count">0</span></h3>
+            <div id="req-in"></div>
+            <div id="req-out"></div>
           </div>
           <div class="panel">
             <h3>All friends — <span id="friend-count">0</span></h3>
@@ -216,6 +221,8 @@
     <label class="field"><span>Expire after</span><select id="invite-ttl"><option value="1800">30 minutes</option><option value="3600">1 hour</option><option value="21600">6 hours</option><option value="43200">12 hours</option><option value="86400">1 day</option><option value="604800" selected>7 days</option><option value="0">Never</option></select></label>
     <button class="btn primary" id="invite-gen" type="button">Generate link</button>
     <div class="inline-form hidden" id="invite-out" style="margin-top:12px"><input id="invite-link" readonly><button class="btn primary" id="invite-copy" type="button">Copy</button></div>
+    <div class="sec-title"><span>Existing invites</span></div>
+    <div class="logbox" id="invite-list"></div>
   </div>
 </div>
 
@@ -229,6 +236,7 @@
     </div>
     <div class="tab-pane" id="tab-profile">
       <p class="hint">Your photo and username, as others see them.</p>
+      <p class="hint" id="profile-stats"></p>
       <div class="up"><button type="button" class="ava lg" id="pf-ava" title="Change photo"></button><input type="file" id="pf-file" accept="image/*" hidden>
         <div class="up-btns"><button type="button" class="btn ghost" id="pf-pick">Upload photo</button><button type="button" class="linkbtn" id="pf-clear">Remove</button></div></div>
       <form id="profile-form"><label class="field"><span>Username</span><input id="profile-name" maxlength="20" autocomplete="off" spellcheck="false" required></label>
@@ -287,6 +295,8 @@
     <button class="modal-x" data-close aria-label="Close">×</button>
     <h2>Audit log</h2><p class="hint">Everything that happens in this server is saved here for good.</p>
     <label class="field"><span>Show</span><select id="audit-filter"><option value="">Everything</option><option value="channel">Channels</option><option value="member">Members and invites</option><option value="voice">Voice joins and leaves</option><option value="message">Deleted messages</option></select></label>
+    <div class="modal-actions" style="justify-content:flex-start"><button class="btn ghost sm" id="audit-transfer" type="button">Transfer ownership</button></div>
+    <div class="logbox hidden" id="transfer-list"></div>
     <div class="logbox" id="audit-list"></div>
   </div>
 </div>
@@ -305,6 +315,7 @@
 <div class="menu hidden" id="ctx-menu"></div>
 <div class="toast-stack" id="toast-stack"></div>
 <script src="/app.js"></script>
+<script src="/ui.js"></script>
 <script src="/voice.js"></script>
 </body>
 </html>
