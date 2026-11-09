@@ -107,6 +107,8 @@ const msgSchema = new mongoose.Schema({
   dt: Number,
   rx: mongoose.Schema.Types.Mixed // reactions: { emoji: [userIds] }
 }, { versionKey: false });
+msgSchema.index({ s: 1, ch: 1, _id: 1 }); // server channel history
+msgSchema.index({ a: 1, b: 1, _id: 1 }); // DM history
 const Msg = mongoose.models.Msg || mongoose.model('Msg', msgSchema, 'msgs');
 
 const serverSchema = new mongoose.Schema({
@@ -119,6 +121,7 @@ const serverSchema = new mongoose.Schema({
   pub: Boolean,
   i: { type: String, unique: true }
 }, { versionKey: false });
+serverSchema.index({ m: 1 });
 const Server = mongoose.models.Server || mongoose.model('Server', serverSchema, 'servers');
 
 const channelSchema = new mongoose.Schema({
@@ -129,6 +132,7 @@ const channelSchema = new mongoose.Schema({
   k: { type: String, default: 't' }, // 't' = text, 'v' = voice
   d: { type: Number, default: 0 }
 }, { versionKey: false });
+channelSchema.index({ s: 1 });
 const Channel = mongoose.models.Channel || mongoose.model('Channel', channelSchema, 'channels');
 
 // Voice presence: one row per connected user, refreshed ~1/s by the client. Rows older than VOICE_LIVE seconds are ignored.
@@ -564,21 +568,24 @@ module.exports = async function handler(req, res) {
 
     if (action === 'send') {
       if (!(await hit(`msg:${auth.userId}`, 20, 10))) return res.status(429).json({ error: 'You are sending messages too fast.' });
-      const plusU = await User.findById(auth.userId).select('pl').lean();
-      const clean = String(text || '').trim().slice(0, plusU && plusU.pl ? 4000 : 2000);
+      const me = await User.findById(auth.userId).select('n av pl').lean();
+      const clean = String(text || '').trim().slice(0, me && me.pl ? 4000 : 2000);
       if (!clean) return res.status(400).json({ error: 'Empty message.' });
       let target;
       if (kind === 'server') {
-        if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
-        if (!(await Channel.exists({ _id: Number(channelId), s: Number(id), k: { $ne: 'v' }, d: { $ne: 1 } }))) return res.status(400).json({ error: 'This server has no such text channel.' });
+        const [member, chanOk] = await Promise.all([
+          isMember(id, auth.userId),
+          Channel.exists({ _id: Number(channelId), s: Number(id), k: { $ne: 'v' }, d: { $ne: 1 } })
+        ]);
+        if (!member) return res.status(403).json({ error: 'Not a member.' });
+        if (!chanOk) return res.status(400).json({ error: 'This server has no such text channel.' });
         target = { s: Number(id), ch: Number(channelId) };
       } else {
         if (!(await areFriends(auth.userId, Number(id)))) return res.status(403).json({ error: 'You can only message friends.' });
         target = { b: Number(id) };
       }
-      const msg = await Msg.create({ _id: await nextId(Msg), a: auth.userId, ...target, m: clean });
-      await User.updateOne({ _id: auth.userId }, { $inc: { mc: 1 } });
-      return res.status(200).json({ message: { id: msg._id, mine: true, text: msg.m, t: msg.t } });
+      const [msg] = await Promise.all([Msg.create({ _id: await nextId(Msg), a: auth.userId, ...target, m: clean }), User.updateOne({ _id: auth.userId }, { $inc: { mc: 1 } })]);
+      return res.status(200).json({ message: { id: msg._id, mine: true, text: msg.m, t: msg.t, rx: [], author: { id: auth.userId, username: me?.n || 'You', avatar: me?.av, plus: !!me?.pl } } });
     }
 
     // ---------- read state (seen/unseen) ----------

@@ -310,3 +310,46 @@ textarea { resize: none; display: block; }
 .unread-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--txt); margin-left: auto; flex: none; }
 .ping-badge { margin-left: auto; flex: none; background: var(--coral); color: #fff; font-size: 11px; font-weight: 800; border-radius: 9px; padding: 1px 7px; }
 .dm-item { position: relative; }
+
+/* ---------- visual refresh: nav, glow, glass, motion ---------- */
+:root { --glow: 0 0 0 1px rgba(255,255,255,.03), 0 10px 30px rgba(0,0,0,.45); }
+body { background: radial-gradient(1200px 700px at -10% -10%, #10203f 0%, transparent 60%), radial-gradient(900px 600px at 110% 0%, #1a1038 0%, transparent 55%), var(--bg0); }
+.rail { background: linear-gradient(180deg, #060c19, #080f20); position: relative; }
+.rail::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 1px; background: linear-gradient(180deg, transparent, var(--coral) 40%, transparent 80%); opacity: .35; }
+.rail-btn { box-shadow: var(--glow); transition: border-radius .18s ease, transform .18s ease, background-color .18s ease, box-shadow .18s ease; }
+.rail-btn:hover { box-shadow: var(--glow), 0 0 0 2px rgba(255,90,78,.25); }
+.rail-btn.active { background: linear-gradient(145deg, var(--bg4), #1c2d52); }
+.rail-btn.home.active { background: linear-gradient(145deg, var(--coral), #ff7a6e); }
+.nav-item, .dm-item, .ch-item { transition: background-color .15s, color .15s, padding-left .15s, transform .12s; }
+.nav-item:active, .dm-item:active, .ch-item:active { transform: scale(.985); }
+.nav-item.active, .dm-item.active, .ch-item.active { background: linear-gradient(90deg, rgba(255,90,78,.14), rgba(255,90,78,.02)); }
+#side-title { background: linear-gradient(90deg, var(--bone), #cfc7b0); -webkit-background-clip: text; background-clip: text; color: transparent; letter-spacing: .01em; }
+.btn.primary { background: linear-gradient(135deg, var(--coral), #ff7f63); }
+.btn, .icon-btn, .rail-btn, .ch-item, .dm-item, .nav-item { will-change: transform; }
+.modal-card { box-shadow: 0 40px 90px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.04); backdrop-filter: blur(6px); animation: pop .16s cubic-bezier(.2,.9,.3,1.1); }
+.modal-card.wide { max-width: 640px; }
+
+/* ---------- top loading bar (instant feedback, no blank waits) ---------- */
+#loadbar { position: fixed; top: 0; left: 0; right: 0; height: 2.5px; z-index: 999; pointer-events: none; opacity: 0; transition: opacity .2s; }
+#loadbar.on { opacity: 1; }
+#loadbar i { display: block; height: 100%; width: 40%; background: linear-gradient(90deg, transparent, var(--coral), transparent); animation: loadbar 1.1s ease-in-out infinite; }
+@keyframes loadbar { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+
+/* ---------- skeleton loaders instead of a blank "Loading..." ---------- */
+.skel { height: 42px; border-radius: 10px; margin: 6px 10px; background: linear-gradient(90deg, var(--bg3) 25%, var(--bg4) 37%, var(--bg3) 63%); background-size: 400% 100%; animation: shimmer 1.3s ease infinite; }
+@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+
+/* ---------- settings tabs (Profile / Security) ---------- */
+.tabs { display: flex; gap: 6px; margin: 14px 0 18px; padding: 4px; background: var(--bg1); border-radius: 12px; border: 1px solid var(--line); }
+.tabs .tab { flex: 1; padding: 9px 0; border-radius: 9px; font-weight: 700; font-size: 13.5px; color: var(--mut); transition: .15s; }
+.tabs .tab.on { background: var(--bg4); color: var(--bone); box-shadow: 0 4px 14px rgba(0,0,0,.3); }
+.tabs .tab:hover:not(.on) { color: var(--txt); }
+.tab-pane { animation: fadein .15s ease; }
+@keyframes fadein { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+
+/* ---------- security: reveal IP/location ---------- */
+.sec-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.btn.ghost.sm { padding: 5px 11px; font-size: 12px; border-radius: 8px; }
+
+/* ---------- reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) { *, #loadbar i, .skel, .modal-card, .tab-pane { animation: none !important; transition: none !important; } }

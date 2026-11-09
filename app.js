@@ -53,9 +53,16 @@ function chatKey() {
     return '';
 }
 
+let inFlight = 0;
+function bar(on) {
+    inFlight = Math.max(0, inFlight + (on ? 1 : -1));
+    const lb = document.getElementById('loadbar');
+    if (lb) lb.classList.toggle('on', inFlight > 0);
+}
 async function post(payload) {
     const headers = { 'Content-Type': 'application/json' };
     if (S.token) headers.Authorization = `Bearer ${S.token}`;
+    bar(true);
     try {
         const res = await fetch('/api/auth', { method: 'POST', headers, body: JSON.stringify(payload) });
         const data = await res.json().catch(() => ({}));
@@ -63,7 +70,7 @@ async function post(payload) {
         return { res, data };
     } catch {
         return { res: { ok: false, status: 0 }, data: { error: 'Network error.' } };
-    }
+    } finally { bar(false); }
 }
 
 /* ---------- auth ---------- */
@@ -156,11 +163,10 @@ async function boot() {
     const email = localStorage.getItem('email') || '';
     setMe({ username: email.split('@')[0], email });
     renderAll();
-    const me = await post({ action: 'me' });
+    const [me] = await Promise.all([post({ action: 'me' }), loadServers(), loadFriends()]);
     if (!me.res.ok) return;
     S.me = me.data;
     setMe(me.data);
-    await Promise.all([loadServers(), loadFriends()]);
     renderAll();
     startTimers();
     handleInvite();
@@ -493,7 +499,9 @@ function renderMembers() {
     });
 }
 
+let S_curMsgs = [];
 function renderMessages(list, force) {
+    S_curMsgs = list;
     const box = $('messages');
     const sig = list.map(m => m.id + ':' + (m.rx || []).map(r => r.e + r.n + (r.me ? 1 : 0)).join('')).join(',');
     if (sig === S.sig && !force) return;
@@ -562,12 +570,12 @@ async function sendMessage() {
     if (!text || S.sending) return;
     const isServer = S.view === 'server';
     if (isServer && S.channelId == null) return toast('This server has no text channel yet.', true);
-    S.sending = true; $('chat-send').disabled = true;
+    const key = chatKey();
+    input.value = ''; autosize(); input.focus();
     const out = await post({ action: 'send', kind: isServer ? 'server' : 'dm', id: isServer ? S.server.id : S.dm.id, text, ...(isServer ? { channelId: S.channelId } : {}) });
-    S.sending = false; $('chat-send').disabled = false;
-    if (out.res.ok) { input.value = ''; autosize(); await loadMessages(true); }
-    else toast(out.data.error || 'Message failed.', true);
-    input.focus();
+    if (chatKey() !== key) return; // user navigated away while it was sending
+    if (out.res.ok) { S.sig = ''; renderMessages([...S_curMsgs, out.data.message], true); } // paint instantly from the server's echo, no second request
+    else { input.value = text; autosize(); toast(out.data.error || 'Message failed.', true); }
 }
 
 /* ---------- friends ---------- */
@@ -842,13 +850,21 @@ $('profile-name').oninput = () => paint('pf', $('profile-name').value);
 $('sv-name').oninput = () => paint('sv', $('sv-name').value);
 $('edit-btn').onclick = $('hp-edit').onclick = () => openProfile();
 
-function openProfile() {
+function openProfile(tab) {
     $('profile-msg').textContent = '';
     $('profile-name').value = S.me ? S.me.username : '';
     pend.pf = S.me?.avatar || ''; paint('pf', $('profile-name').value);
     $('profile-bio').value = S.me?.bio || ''; $('dev-toggle').checked = dev();
     openModal('modal-profile');
+    settingsTab(tab || 'profile');
 }
+function settingsTab(name) {
+    document.querySelectorAll('#pf-tabs .tab').forEach(t => t.classList.toggle('on', t.dataset.tab === name));
+    $('tab-profile').classList.toggle('hidden', name !== 'profile');
+    $('tab-security').classList.toggle('hidden', name !== 'security');
+    if (name === 'security') openSecurity();
+}
+$('pf-tabs').onclick = (e) => { const b = e.target.closest('.tab'); if (b) settingsTab(b.dataset.tab); };
 function openServerSettings() {
     if (!isOwner()) return;
     $('sv-msg').textContent = '';
@@ -1060,9 +1076,13 @@ async function kickMember(m) {
 /* ---------- reactions ---------- */
 const QUICK = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉', '👀', '💯'];
 async function react(m, e) {
+    const row = S_curMsgs.find(x => x.id === m.id) || m;
+    let r = row.rx.find(x => x.e === e);
+    if (r) { r.me = !r.me; r.n += r.me ? 1 : -1; if (r.n <= 0) row.rx = row.rx.filter(x => x !== r); }
+    else row.rx = [...row.rx, { e, n: 1, me: true }];
+    S.sig = ''; renderMessages(S_curMsgs, false); // instant local update, no network wait
     const out = await post({ action: 'react', id: m.id, text: e });
-    if (!out.res.ok) return toast(out.data.error || 'Could not react.', true);
-    S.sig = ''; loadMessages(false);
+    if (!out.res.ok) { toast(out.data.error || 'Could not react.', true); S.sig = ''; loadMessages(true); } // roll back by refetching on failure
 }
 function reactRow(m) {
     const d = h('div', 'rxs');
@@ -1085,26 +1105,31 @@ function reactTools(m) {
 document.addEventListener('click', () => document.querySelectorAll('.rx-pop').forEach(x => x.remove()));
 
 /* ---------- security: sessions and password ---------- */
-async function openSecurity() {
-    openModal('modal-sec');
-    $('sec-msg').textContent = ''; $('sec-old').value = ''; $('sec-new').value = '';
-    const sb = $('sec-sessions'), hb = $('sec-history');
-    sb.textContent = 'Loading…'; hb.textContent = '';
-    const out = await post({ action: 'security' });
+let secData = null, secRevealed = false;
+function paintSessions() {
+    const sb = $('sec-sessions');
     sb.textContent = '';
-    if (!out.res.ok) return void sb.append(h('div', 'side-empty', out.data.error || 'Could not load.'));
-    out.data.sessions.forEach(s => {
+    if (!secData) return;
+    secData.sessions.forEach(s => {
         const r = h('div', 'logrow');
-        const where = [s.ip, s.place].filter(Boolean).join(' · ') || 'unknown location';
-        r.append(h('time', '', stamp(s.ls)), h('span', '', `${s.device} — ${where}${s.lastIp && s.lastIp !== s.ip ? ` (now ${s.lastIp})` : ''}, signed in ${stamp(s.t)}${s.current ? ' · THIS DEVICE' : ''}`));
-        if (!s.current) { const b = h('button', 'btn ghost', 'Sign out'); b.type = 'button'; b.onclick = async () => { await post({ action: 'session-revoke', id: s.id }); openSecurity(); }; r.append(b); }
+        const where = secRevealed ? [s.ip, s.place].filter(Boolean).join(' · ') || 'unknown location' : '•••.•••.•.•• — hidden';
+        r.append(h('time', '', stamp(s.ls)), h('span', '', `${s.device} — ${where}${secRevealed && s.lastIp && s.lastIp !== s.ip ? ` (now ${s.lastIp})` : ''}, signed in ${stamp(s.t)}${s.current ? ' · THIS DEVICE' : ''}`));
+        if (!s.current) { const b = h('button', 'btn ghost', 'Sign out'); b.type = 'button'; b.onclick = async () => { await post({ action: 'session-revoke', id: s.id }); openSecurity(true); }; r.append(b); }
         sb.append(r);
     });
+}
+$('sec-reveal').onclick = () => { secRevealed = !secRevealed; $('sec-reveal').textContent = secRevealed ? 'Hide IP & location' : 'Show IP & location'; paintSessions(); };
+async function openSecurity(skipReset) {
+    if (!skipReset) { $('sec-msg').textContent = ''; $('sec-old').value = ''; $('sec-new').value = ''; }
+    const hb = $('sec-history');
+    const out = await post({ action: 'security' });
+    if (!out.res.ok) return void ($('sec-sessions').textContent = '', $('sec-sessions').append(h('div', 'side-empty', out.data.error || 'Could not load.')));
+    secData = out.data; paintSessions();
+    hb.textContent = '';
     if (!out.data.history.length) hb.append(h('div', 'side-empty', 'Nothing yet.'));
     out.data.history.forEach(l => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(l.t)), h('span', '', logText({ ...l, an: 'You' }))); hb.append(r); });
 }
-$('sec-btn').onclick = openSecurity;
-$('sec-others').onclick = async () => { await post({ action: 'sessions-revoke-others' }); toast('Signed out everywhere else.'); openSecurity(); };
+$('sec-others').onclick = async () => { await post({ action: 'sessions-revoke-others' }); toast('Signed out everywhere else.'); openSecurity(true); };
 $('sec-pw').onclick = async () => {
     const out = await post({ action: 'password-change', password: $('sec-old').value, npw: $('sec-new').value });
     $('sec-msg').style.color = out.res.ok ? 'var(--bone)' : '';
