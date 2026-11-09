@@ -32,6 +32,8 @@ const dot = (st) => h('i', dotCls(st));
 function statEl(on, total) { const s = h('small', 'stat'); s.append(h('i', 'pdot'), `${on} online`, h('i', 'pdot off'), `${total - on} offline`); return s; }
 const bg = (url, name) => url ? `center/cover url("${url}")` : color(name || '?');
 function avatar(name, cls = '', url = '') { const a = h('div', 'ava ' + cls, url ? '' : ini(name)); a.style.background = bg(url, name); return a; }
+function userAva(u, cls = '') { const a = avatar(u.username || u.email, cls, u.avatar); if (u.plus) { a.classList.add('plus'); if (u.accent) a.style.setProperty('--ac', u.accent); } return a; }
+const nameColour = (u) => u.plus && u.accent ? u.accent : u.plus ? '#ffd36b' : color(u.username || u.email).replace('48%', '70%');
 const isOwner = () => !!(S.me && S.server && S.server.owner === S.me.id);
 const curChannel = () => S.channels.find(c => c.id === S.channelId) || null;
 const fmtTime = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -150,8 +152,12 @@ function setMe(u) {
     const name = u.username || 'user';
     const letter = u.avatar ? '' : ini(name);
     $('me-name').textContent = $('hp-name').textContent = name;
+    $('me-name').style.color = $('hp-name').style.color = u.plus ? (u.accent || '#ffd36b') : '';
     $('me-email').textContent = $('hp-email').textContent = u.email || '';
+    $('hp-status').textContent = u.statusText || '';
+    $('hp-status').classList.toggle('hidden', !u.statusText);
     $('hp-bio').textContent = u.bio || '';
+    $('hp-bio').classList.toggle('hidden', !u.bio);
     $('hp-stats').textContent = u.voice || u.msgs ? `${fmtDur(u.voice || 0)} in voice · ${u.msgs || 0} messages` : '';
     $('me-ava').querySelector('.dot').className = dotCls(u.status);
     $('me-initial').textContent = $('hp-ava').textContent = letter;
@@ -170,6 +176,7 @@ async function boot() {
     setMe(me.data);
     renderAll();
     startTimers();
+    if (location.pathname !== '/' && location.pathname !== '/friends') await restoreRoute();
     handleInvite();
 }
 
@@ -265,7 +272,7 @@ $('rail-home').onclick = () => { goHome(); closeNav(); };
 $('nav-friends').onclick = () => { goHome(); closeNav(); };
 $('rail-discover').onclick = () => {
     S.view = 'discover'; S.server = null; S.dm = null; S.channels = []; S.channelId = null; S.members = []; S.sig = '';
-    renderAll(); loadDiscover(); closeNav();
+    renderAll(); loadDiscover(); syncUrl(); closeNav();
 };
 
 /* ---------- discover ---------- */
@@ -295,7 +302,7 @@ $('disc-q').oninput = () => { clearTimeout(discT); discT = setTimeout(loadDiscov
 
 function goHome() {
     S.view = 'home'; S.server = null; S.dm = null; S.channels = []; S.channelId = null; S.members = []; S.sig = '';
-    renderAll();
+    renderAll(); syncUrl();
 }
 async function openServer(id) {
     const s = S.servers.find(x => x.id === id);
@@ -307,6 +314,7 @@ async function openServer(id) {
     renderAll();
     loadMembers();
     loadMessages(true);
+    syncUrl();
     closeNav();
 }
 function openDM(user) {
@@ -314,6 +322,7 @@ function openDM(user) {
     $('messages').textContent = '';
     renderAll();
     loadMessages(true); // it marks the conversation read once the real cursor is known
+    syncUrl();
     closeNav();
     $('chat-input').focus();
 }
@@ -322,10 +331,61 @@ function selectChannel(id) {
     $('messages').textContent = '';
     renderSide(); renderMain();
     loadMessages(true); // it marks the conversation read once the real cursor is known
+    syncUrl();
     closeNav();
     const vc = curChannel();
     if (vc && vc.kind === 'v') joinVoice(vc);
 }
+
+/* ---------- per-area URLs ---------- */
+let navSilent = false; // true while the current view came from the address bar, so we do not push it again
+function routePath() {
+    if (S.view === 'discover') return '/discover';
+    if (S.view === 'dm' && S.dm) return '/dm/' + encodeURIComponent(S.dm.username || S.dm.id);
+    if (S.view === 'server' && S.server) return '/channels/' + S.server.id + (S.channelId != null ? '/' + S.channelId : '');
+    return '/friends';
+}
+function syncUrl(replace) {
+    if (navSilent || !S.me) return;
+    const p = routePath();
+    if (location.pathname === p) return;
+    try { history[replace ? 'replaceState' : 'pushState']({ p }, '', p); } catch {}
+}
+async function goLink(path) {
+    const parts = String(path || '').split('/').filter(Boolean);
+    if (parts[0] === 'dm' && parts[1]) {
+        const key = decodeURIComponent(parts[1]).toLowerCase();
+        const u = S.friends.find(f => String(f.username || '').toLowerCase() === key || String(f.id) === key);
+        if (!u) return toast('That conversation is not available — you may not be friends yet.', true);
+        return openDM(u);
+    }
+    if (parts[0] === 'channels' && parts[1]) {
+        const sid = Number(parts[1]);
+        if (!S.servers.some(s => s.id === sid)) return toast('You are not a member of that server.', true);
+        await openServer(sid);
+        const cid = Number(parts[2]);
+        const c = S.channels.find(x => x.id === cid);
+        if (!c) return;
+        if (c.kind === 'v') { S.channelId = cid; S.last[sid] = cid; S.sig = ''; renderSide(); renderMain(); } // share a voice channel without forcing a join
+        else selectChannel(cid);
+        return;
+    }
+    if (parts[0] === 'discover') {
+        S.view = 'discover'; S.server = null; S.dm = null; S.channels = []; S.channelId = null; S.members = []; S.sig = '';
+        renderAll(); loadDiscover(); syncUrl();
+        return;
+    }
+    goHome();
+}
+async function restoreRoute() {
+    navSilent = true;
+    try {
+        await goLink(location.pathname);
+        if (routePath() !== location.pathname) history.replaceState({}, '', routePath()); // bad link or not available: show a clean URL
+    } finally { navSilent = false; }
+}
+window.addEventListener('popstate', () => { if (S.token && S.me) restoreRoute(); });
+$('share-btn').onclick = () => copy(location.origin + routePath());
 
 /* ---------- composer ---------- */
 const input = $('chat-input');
@@ -375,11 +435,63 @@ function segments(text, names) { // split text into plain strings and {m, who} m
     if (last < text.length) out.push(text.slice(last));
     return out;
 }
+/* links: only http(s) is ever turned into an anchor, so nothing else can sneak in */
+const URL_RE = /https?:\/\/[^\s<>"']+/g;
+const cleanUrl = (s) => String(s).replace(/[.,!?;:)\]]+$/, '');
+const urlsIn = (text) => [...String(text || '').matchAll(URL_RE)].map(m => cleanUrl(m[0]));
+function linkLabel(u) {
+    const host = u.host.replace(/^www\./, ''), tail = (u.pathname === '/' ? '' : u.pathname) + (u.search || '');
+    const s = host + tail.replace(/\/$/, '');
+    return s.length > 64 ? s.slice(0, 61) + '…' : s;
+}
+function linkEl(raw) {
+    let u; try { u = new URL(raw); } catch { return document.createTextNode(raw); }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return document.createTextNode(raw);
+    const internal = u.origin === location.origin;
+    const a = h('a', 'mlink' + (internal ? ' int' : ''), linkLabel(u));
+    a.href = raw; a.rel = 'noopener noreferrer';
+    if (internal) a.onclick = (e) => { e.preventDefault(); goLink(u.pathname); };
+    else a.target = '_blank';
+    return a;
+}
+function appendLinks(el, text) {
+    URL_RE.lastIndex = 0;
+    let last = 0, m;
+    while ((m = URL_RE.exec(text))) {
+        if (m.index > last) el.append(text.slice(last, m.index));
+        const raw = m[0], clean = cleanUrl(raw);
+        el.append(linkEl(clean));
+        if (clean.length < raw.length) el.append(raw.slice(clean.length)); // keep trailing punctuation out of the link
+        last = m.index + raw.length;
+    }
+    if (last < text.length) el.append(text.slice(last));
+}
+function linkEmbed(path) { // a rich card for pratr links pasted in chat
+    const parts = String(path || '').split('/').filter(Boolean);
+    const box = h('div', 'embed'), meta = h('div', 'meta');
+    const btn = h('button', 'btn primary', 'Open'); btn.type = 'button'; btn.onclick = () => goLink(path);
+    if (parts[0] === 'dm' && parts[1]) {
+        const key = decodeURIComponent(parts[1]).toLowerCase();
+        const u = S.friends.find(f => String(f.username || '').toLowerCase() === key || String(f.id) === key);
+        meta.append(h('strong', '', u ? `Direct message with ${u.username}` : 'Direct message'), h('span', 'lnk', 'pratr link'));
+        box.append(userAva(u || { username: key }, 'sm'), meta, btn);
+        return box;
+    }
+    if (parts[0] === 'channels' && parts[1]) {
+        const sid = Number(parts[1]), cid = Number(parts[2] || 0);
+        const s = S.servers.find(x => x.id === sid);
+        const ch = s && S.server && S.server.id === sid ? S.channels.find(c => c.id === cid) : null;
+        meta.append(h('strong', '', cid ? `#${ch ? ch.name : cid}` : (s ? s.name : 'Server')), h('span', 'lnk', s ? s.name : 'You are not a member'));
+        box.append(h('div', 'embed-ic', cid ? '#' : '▤'), meta, s ? btn : h('span', 'lnk', ''));
+        return box;
+    }
+    return null;
+}
 function richText(text, canAll) { // returns [element, mentionsMe]; text nodes only, so no HTML injection
     const t = h('div', 'text'), mine = (S.me?.username || '').toLowerCase();
     let me = false;
     segments(text, canAll ? [...mnames(), 'everyone', 'here'] : mnames()).forEach(s => {
-        if (typeof s === 'string') return t.append(s);
+        if (typeof s === 'string') return appendLinks(t, s);
         const all = canAll && /^(everyone|here)$/i.test(s.who), hit = all || s.who.toLowerCase() === mine; if (hit) me = true;
         t.append(h('span', 'mention' + (hit ? ' me' : '') + (all ? ' all' : ''), s.m));
     });
@@ -418,7 +530,8 @@ $('dev-toggle').onchange = (e) => {
     try { localStorage.setItem('dev', e.target.checked ? '1' : '0'); } catch {}
     S.sig = ''; renderAll(); if (S.view !== 'home') loadMessages(true); // rebuild so right-click menus pick up the change
 };
-const pend = {}; // pending image URL per upload widget (pf = profile, sv = server)
+const pend = {}; // pending image URL per upload widget (pf = profile, sv = server); ac = picked Plus accent
+const ACCENTS = ['#ffd36b', '#ff8fa3', '#7ee2b8', '#7cc4ff', '#b99bff', '#ffab6b', '#5ee0d6', '#f0e9db']; // must match api/auth.js
 const paint = (k, name) => { const el = $(k + '-ava'); el.textContent = pend[k] ? '' : ini(name); el.style.background = bg(pend[k], name); };
 
 async function uploadImage(file, kind) {
@@ -538,11 +651,13 @@ function openPlus() {
     const has = !!(S.me && S.me.plus);
     $('plus-state').textContent = has ? 'You have Pratr Plus. Thank you for supporting pratr! ✦' : '';
     $('plus-buy').classList.toggle('hidden', has);
+    $('plus-customize').classList.toggle('hidden', !has);
     $('plus-admin').classList.toggle('hidden', !(S.me && S.me.admin));
     $('plus-msg').textContent = '';
     openModal('modal-plus');
 }
 $('plus-btn').onclick = openPlus;
+$('plus-customize').onclick = () => { closeModals(); openProfile(); };
 $('plus-buy-btn').onclick = async () => {
     const out = await post({ action: 'hq-join' });
     if (!out.res.ok) { $('plus-msg').textContent = out.data.error || 'Could not open Headquarters.'; return; }

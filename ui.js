@@ -14,7 +14,7 @@ function renderRail() {
         const b = h('button', 'rail-btn' + (S.server && S.server.id === s.id ? ' active' : ''), s.icon ? '' : ini(s.name));
         if (s.icon) b.style.background = bg(s.icon);
         b.title = s.name;
-        b._ctx = () => [...(s.owner === S.me?.id ? [['Server settings', () => openServer(s.id).then(openServerSettings)]] : []), ['Copy server name', () => copy(s.name)], ...idItem('server', s.id)];
+        b._ctx = () => [...(s.owner === S.me?.id ? [['Server settings', () => openServer(s.id).then(openServerSettings)]] : []), ['Copy server link', () => copy(location.origin + '/channels/' + s.id)], ['Copy server name', () => copy(s.name)], ...idItem('server', s.id)];
         b.onclick = () => openServer(s.id);
         box.append(b);
     });
@@ -33,12 +33,12 @@ function renderSide() {
     if (!S.friends.length) dms.append(h('div', 'side-empty', 'Add a friend to start chatting.'));
     S.friends.forEach(u => {
         const b = h('button', 'dm-item' + (S.view === 'dm' && S.dm && S.dm.id === u.id ? ' active' : ''));
-        const da = avatar(u.username || u.email, 'sm', u.avatar); da.append(dot(u.status));
+        const da = userAva(u, 'sm'); da.append(dot(u.status));
         const dun = S.unread.dms[u.id];
         b.append(da, h('span', dun ? 'unread' : '', u.username || u.email));
         if (dun) b.append(h('em', 'ping-badge', String(dun.pings)));
         b.onclick = () => openDM(u);
-        b._ctx = userItems(u);
+        b._ctx = [['Copy link', () => copy(location.origin + '/dm/' + encodeURIComponent(u.username || u.id))], ...userItems(u)];
         dms.append(b);
     });
 
@@ -70,7 +70,7 @@ function renderSide() {
                 del.onclick = (e) => { e.stopPropagation(); deleteChannel(c); };
                 it.append(del);
             }
-            it._ctx = [['Open channel', () => selectChannel(c.id)], ['Copy name', () => copy(c.name)], ...idItem('channel', c.id), ...(isOwner() ? ['-', ['Delete channel', () => deleteChannel(c), true]] : [])];
+            it._ctx = [['Open channel', () => selectChannel(c.id)], ['Copy link', () => copy(location.origin + '/channels/' + S.server.id + '/' + c.id)], ['Copy name', () => copy(c.name)], ...idItem('channel', c.id), ...(isOwner() ? ['-', ['Delete channel', () => deleteChannel(c), true]] : [])];
             it.onclick = () => selectChannel(c.id);
             it.onkeydown = (e) => { if (e.key === 'Enter') selectChannel(c.id); };
             list.append(it);
@@ -89,11 +89,14 @@ function renderFriends() {
     S.friends.forEach(u => {
         const c = h('div', 'friend-card');
         const meta = h('div', 'meta');
-        meta.append(h('strong', '', u.username || u.email), h('small', '', u.bio || u.email || ''), h('small', 'stats', `${fmtDur(u.voice || 0)} in voice · ${u.msgs || 0} messages`));
+        const nm = h('strong', '', u.username || u.email); nm.style.color = nameColour(u);
+        meta.append(nm);
+        if (u.statusText) { const st = h('small', '', u.statusText); st.style.color = u.plus && u.accent ? u.accent : ''; meta.append(st); }
+        meta.append(h('small', '', u.bio || u.email || ''), h('small', 'stats', `${fmtDur(u.voice || 0)} in voice · ${u.msgs || 0} messages`));
         const btn = h('button', 'btn ghost', 'Message');
         btn.onclick = () => openDM(u);
-        c._ctx = userItems(u);
-        const av = avatar(u.username || u.email, '', u.avatar); av.append(dot(u.status));
+        c._ctx = [['Copy link', () => copy(location.origin + '/dm/' + encodeURIComponent(u.username || u.id))], ...userItems(u)];
+        const av = userAva(u); av.append(dot(u.status));
         c.append(av, meta, btn);
         grid.append(c);
     });
@@ -187,9 +190,12 @@ function renderDmCard() {
     if (!u) return;
     const n = u.username || u.email, body = h('div', 'dm-body'), about = h('div', 'dm-about');
     about.append(h('h5', '', 'About me'), h('p', '', u.bio || 'No bio yet.'));
-    body.append(h('strong', '', n), h('span', 'badge', 'FRIEND'), h('small', 'muted', SLABEL[u.status] || 'Offline'), h('small', 'stats', `${fmtDur(u.voice || 0)} in voice · ${u.msgs || 0} messages`), about);
+    const nm = h('strong', '', n); nm.style.color = nameColour(u);
+    body.append(nm, h('span', 'badge', 'FRIEND'));
+    if (u.statusText) { const st = h('small', 'muted', u.statusText); st.style.color = u.plus && u.accent ? u.accent : ''; body.append(st); }
+    body.append(h('small', 'muted', SLABEL[u.status] || 'Offline'), h('small', 'stats', `${fmtDur(u.voice || 0)} in voice · ${u.msgs || 0} messages`), about);
     card.textContent = '';
-    card.append(h('div', 'dm-banner'), avatar(n, 'xl', u.avatar), body);
+    card.append(h('div', 'dm-banner'), userAva(u, 'xl'), body);
 }
 
 function renderMembers() {
@@ -202,10 +208,12 @@ function renderMembers() {
         if (!list.length) return;
         box.append(h('div', 'mem-sec', `${title} — ${list.length}`));
         list.forEach(m => {
-            const r = h('div', 'mem' + (title === 'Offline' ? ' off' : '')), a = avatar(m.username, 'sm', m.avatar);
+            const r = h('div', 'mem' + (title === 'Offline' ? ' off' : '')), a = userAva(m, 'sm');
             a.append(dot(m.status));
-            r._ctx = [...userItems(m), ...(isOwner() && S.me && m.id !== S.me.id ? ['-', ['Kick from server', () => kickMember(m), true]] : [])]; r.title = m.bio || '';
-            r.append(a, h('span', '', m.username || 'Member'), h('small', 'mem-stats', `${fmtDur(m.voice || 0)} · ${m.msgs || 0} msgs`));
+            r._ctx = [...userItems(m), ...(isOwner() && S.me && m.id !== S.me.id ? ['-', ['Kick from server', () => kickMember(m), true]] : [])]; r.title = m.statusText || m.bio || '';
+            const label = h('div', 'mem-name'), nm = h('span', '', m.username || 'Member'); nm.style.color = nameColour(m); label.append(nm);
+            if (m.statusText) label.append(h('small', 'mem-st', m.statusText));
+            r.append(a, label, h('small', 'mem-stats', `${fmtDur(m.voice || 0)} · ${m.msgs || 0} msgs`));
             if (S.server && m.id === S.server.owner) r.append(h('em', 'badge', 'OWNER'));
             if (m.plus) r.append(h('em', 'badge plus', '✦'));
             box.append(r);
@@ -214,6 +222,8 @@ function renderMembers() {
 }
 
 let S_curMsgs = [];
+const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\uFE0F|\u200D|[0-9#*]\uFE0F?\u20E3|\s)+$/u;
+const isEmojiOnly = (t) => { const s = String(t || '').trim(); return s.length > 0 && s.length <= 60 && /\p{Extended_Pictographic}/u.test(s) && EMOJI_ONLY.test(s); };
 function renderMessages(list, force) {
     S_curMsgs = list;
     const box = $('messages');
@@ -245,22 +255,25 @@ function renderMessages(list, force) {
         const row = h('div', 'msg' + (same ? '' : ' first'));
         if (m.pending) row.classList.add('pending');
         const gutter = h('div', 'gutter');
-        if (same) gutter.textContent = fmtTime(m.t); else { const av = avatar(m.author.username, '', m.author.avatar); if (m.author.plus) av.classList.add('plus'); gutter.append(av); }
+        if (same) gutter.textContent = fmtTime(m.t); else gutter.append(userAva(m.author));
         const body = h('div', 'body');
         if (!same) {
             const head = h('div', 'head');
             const name = h('strong', '', m.author.username);
-            name.style.color = m.author.plus ? '#ffd36b' : color(m.author.username).replace('48%', '70%');
+            name.style.color = nameColour(m.author);
             const time = h('time', '', fmtTime(m.t));
             head.append(name, ...(m.author.plus ? [h('span', 'plus-badge', '✦ PLUS')] : []), time);
             body.append(head);
         }
         const [txt, mentionsMe] = richText(m.text, S.view === 'server' && !!S.server && m.author.id === S.server.owner); // only the server owner can ping @everyone / @here
+        if (isEmojiOnly(m.text)) txt.classList.add('emoji-only');
         body.append(txt);
         if (m.rx && m.rx.length) body.append(reactRow(m));
         if (mentionsMe) row.classList.add('mentioned');
         if (prevMax != null && m.id > prevMax && !m.mine && mentionsMe) toast(`${m.author.username} mentioned you`);
         [...new Set([...m.text.matchAll(/#invite=([a-z0-9]{5,48})/gi)].map(x => x[1].toLowerCase()))].forEach(code => body.append(inviteEmbed(code)));
+        const internal = urlsIn(m.text).map(u => { try { const x = new URL(u); return x.origin === location.origin ? x.pathname : ''; } catch { return ''; } }).filter(Boolean);
+        if (internal.length) { const card = linkEmbed(internal[0]); if (card) body.append(card); }
         row._ctx = m.pending ? [] : [...userItems(m.author), ['Copy message', () => copy(m.text)], ...idItem('message', m.id), ...(m.mine || isOwner() ? ['-', ['Delete message', () => delMsg(m), true]] : [])];
         row.append(gutter, body, m.pending ? h('div', 'msg-tools') : reactTools(m));
         box.append(row);
@@ -442,15 +455,8 @@ $('server-menu').onclick = async (e) => {
 
 window.addEventListener('hashchange', () => { if (S.token && S.me) handleInvite(); });
 
-/* ---------- emoji picker (unicode) ---------- */
-const EMOJI = {
-    'Smileys': '😀 😃 😄 😁 😆 😅 🤣 😂 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😗 😚 😙 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🤫 🤔 🤐 🤨 😐 😑 😶 😏 😒 🙄 😬 🤥 😌 😔 😪 🤤 😴 😷 🤒 🤕 🤢 🤮 🤧 🥵 🥶 🥴 😵 🤯 🤠 🥳 😎 🤓 🧐 😕 😟 🙁 ☹️ 😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 👿 💀 ☠️ 💩 🤡 👹 👺 👻 👽 👾 🤖 😺 😸 😹 😻 😼 😽 🙀 😿 😾',
-    'People': '👍 👎 👊 ✊ 🤛 🤜 👏 🙌 👐 🤲 🤝 🙏 ✌️ 🤞 🤟 🤘 👌 🤏 👈 👉 👆 👇 ☝️ ✋ 🤚 🖐️ 🖖 👋 🤙 💪 🖕 ✍️ 💅 🤳 👀 👁️ 👅 👄 🧠 🦴 👶 👦 👧 👨 👩 🧑 👴 👵 🙋 🙆 🙅 🤷 🤦 💁 🙇',
-    'Hearts & symbols': '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💯 💢 💥 💫 💦 💨 💬 💭 💤 ✨ ⭐ 🌟 ⚡ 🔥 🌈 ☀️ 🌙 ❄️ ☁️ ✅ ❌ ❓ ❗ ‼️ ⚠️ 🚫 ⭕ ✔️ ➕ ➖ ➡️ ⬅️ ⬆️ ⬇️ 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🔔 🔕 🆗 🆒 🆕 🆓 🔞',
-    'Animals & nature': '🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🙈 🙉 🙊 🐔 🐧 🐦 🐤 🦆 🦅 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🐛 🦋 🐌 🐞 🐜 🕷️ 🐢 🐍 🦎 🐙 🦑 🦐 🦀 🐠 🐟 🐬 🐳 🦈 🐊 🐘 🦒 🦓 🐪 🐑 🐐 🐕 🐈 🐇 🌵 🎄 🌲 🌳 🌴 🌱 🍀 🍁 🍂 🌸 🌹 🌻 🌼 🍄',
-    'Food & drink': '🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🥑 🥦 🥕 🌽 🌶️ 🥔 🍞 🧀 🥚 🍳 🥞 🥓 🥩 🍗 🍖 🌭 🍔 🍟 🍕 🌮 🌯 🥗 🍝 🍜 🍲 🍣 🍱 🍤 🍙 🍚 🍦 🍩 🍪 🎂 🍰 🧁 🍫 🍬 🍭 🍿 ☕ 🍵 🥤 🍺 🍻 🥂 🍷 🍸 🍹 🧃',
-    'Activities & objects': '🎮 🕹️ 🎲 🎯 🎳 ⚽ 🏀 🏈 ⚾ 🎾 🏐 🏓 🥊 🎧 🎤 🎵 🎶 🎸 🎹 🥁 🎬 🎨 📷 📱 💻 ⌨️ 🖥️ 🖱️ 💾 📚 📖 ✏️ 📝 📌 📎 🔗 🔒 🔑 💡 🔦 🔧 🔨 ⚙️ 🧲 💣 🎁 🎉 🎊 🎈 🏆 🥇 🥈 🥉 👑 💎 💰 🚀 ✈️ 🚗 🚕 🏍️ 🚲 ⛵ 🌍 🏠 🏰 ⏰ ⌛ 📣 🔮'
-};
+/* ---------- emoji picker (every Unicode emoji) ---------- */
+const pop = $('emoji-pop');
 // Emoji this device can't draw show up as empty boxes (they measure a different width), so hide those.
 const canDraw = (() => {
     const c = document.createElement('canvas').getContext('2d');
@@ -458,23 +464,91 @@ const canDraw = (() => {
     const ref = c.measureText('😀').width;
     return (e) => Math.abs(c.measureText(e).width - ref) <= ref * 0.2;
 })();
-const pop = $('emoji-pop'), allEmoji = Object.values(EMOJI).join(' ').split(' ');
-const okEmoji = new Set(allEmoji.filter(canDraw)), filterEmoji = okEmoji.size >= allEmoji.length * 0.5; // too few passing = no emoji font detected, don't filter
-Object.entries(EMOJI).forEach(([title, list]) => {
+// Skin tones are generated from the base gestures/people instead of being stored one by one.
+const TONES = ['🏻', '🏼', '🏽', '🏾', '🏿'];
+const SKIN_BASE = '👋 🤚 🖐️ ✋ 🖖 🫱 🫲 🫳 🫴 🫵 🫷 🫸 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 🖕 👇 ☝️ 🫶 👍 👎 ✊ 👊 🤛 🤜 👏 🙌 👐 🤲 🤝 🙏 ✍️ 💅 🤳 💪 🦵 🦶 👂 👃 👶 🧒 👦 👧 🧑 👱 👨 🧔 👩 🧓 👴 👵 🙍 🙎 🙅 🙆 💁 🙋 🙇 🤦 🤷 🚶 🧍 🧎 🏃 💃 🕺 🧖 🧗 🏇 🏂 🏌️ 🏄 🚣 🏊 ⛹️ 🏋️ 🚴 🚵 🤸 🤼 🤽 🤾 🤹 🧘 🛀 🛌';
+const flag = (code) => String.fromCodePoint(...[...code].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
+const flagSet = new Set((window.FLAG_CODES || '').split(' ').filter(Boolean).map(flag));
+const flagsGroup = (window.EMOJI_GROUPS || []).find(g => g && g.n === 'Flags');
+if (flagsGroup) flagsGroup.e.split(' ').forEach(e => flagSet.add(e));
+const RECENT_KEY = 'emoji-recent';
+let recents = [];
+try { recents = JSON.parse(localStorage.getItem(RECENT_KEY)) || []; } catch { recents = []; }
+const SHORT = { 'Smileys & emotion': 'Smileys', 'People & body': 'People', 'Animals & nature': 'Nature', 'Food & drink': 'Food', 'Travel & places': 'Travel', 'Activities': 'Activity', 'Objects': 'Objects', 'Symbols': 'Symbols', 'Flags': 'Flags' };
+const EMOJI_GROUPS = [
+    { n: 'Recent', list: () => recents },
+    ...(window.EMOJI_GROUPS || []).map(g => ({
+        n: g.n,
+        list: () => g.n === 'People & body'
+            ? g.e.split(' ').concat(SKIN_BASE.split(' ').flatMap(b => TONES.map(t => b + t)))
+            : g.n === 'Flags' ? [...flagSet] : g.e.split(' ')
+    }))
+];
+const tabs = h('div', 'emoji-tabs'), body = h('div', 'emoji-body');
+pop.append(tabs, body);
+let activeEmoji = 0;
+function addRecent(e) {
+    recents = [e, ...recents.filter(x => x !== e)].slice(0, 32);
+    try { localStorage.setItem(RECENT_KEY, JSON.stringify(recents)); } catch {}
+    if (activeEmoji === 0) paintEmoji(0);
+}
+function insertEmoji(e) {
+    input.setRangeText(e, input.selectionStart, input.selectionEnd, 'end'); input.focus(); autosize(); addRecent(e);
+}
+function paintEmoji(i) {
+    activeEmoji = i;
+    [...tabs.children].forEach((t, x) => t.classList.toggle('on', x === i));
+    body.textContent = '';
+    const list = EMOJI_GROUPS[i].list();
+    if (!list.length) return void body.append(h('div', 'side-empty', 'Pick an emoji and it will show up here.'));
     const grid = h('div', 'emoji-grid');
-    list.split(' ').filter(e => !filterEmoji || okEmoji.has(e)).forEach(e => { const b = h('button', '', e); b.type = 'button'; b.onclick = () => { input.setRangeText(e, input.selectionStart, input.selectionEnd, 'end'); input.focus(); autosize(); }; grid.append(b); });
-    if (grid.children.length) pop.append(h('h5', '', title), grid);
+    // Every Unicode emoji stays in the picker. Ones the local font cannot draw are dimmed instead of hidden.
+    list.forEach(e => {
+        const b = h('button', canDraw(e) ? '' : 'no-glyph', e); b.type = 'button'; b.tabIndex = -1; b.title = e;
+        b.onclick = () => insertEmoji(e);
+        grid.append(b);
+    });
+    if (!grid.children.length) body.append(h('div', 'side-empty', 'No emoji here yet.'));
+    else body.append(grid);
+}
+EMOJI_GROUPS.forEach((g, i) => {
+    const t = h('button', 'emoji-tab' + (i === 0 ? ' on' : ''), SHORT[g.n] || g.n);
+    t.type = 'button'; t.tabIndex = -1; t.onclick = () => paintEmoji(i);
+    tabs.append(t);
 });
+paintEmoji(0);
 
 function openProfile(tab) {
     $('profile-msg').textContent = '';
+    const plus = !!(S.me && S.me.plus);
     $('profile-stats').textContent = S.me ? `${fmtDur(S.me.voice || 0)} in voice across all servers · ${S.me.msgs || 0} messages sent` : '';
     $('profile-name').value = S.me ? S.me.username : '';
+    $('profile-bio').maxLength = plus ? 400 : 160;
+    $('profile-bio').value = S.me?.bio || ''; syncBioCount();
+    $('profile-status').value = S.me?.statusText || '';
+    $('profile-status').disabled = !plus;
+    $('plus-lock').classList.toggle('hidden', plus);
+    $('st-plus').classList.toggle('hidden', plus);
+    $('ac-plus').classList.toggle('hidden', plus);
+    pend.ac = plus ? (S.me?.accent || '') : '';
+    paintAccents(plus);
     pend.pf = S.me?.avatar || ''; paint('pf', $('profile-name').value);
-    $('profile-bio').value = S.me?.bio || ''; $('dev-toggle').checked = dev();
+    $('dev-toggle').checked = dev();
     openModal('modal-profile');
     settingsTab(tab || 'profile');
 }
+function syncBioCount() { $('bio-count').textContent = `${$('profile-bio').value.length}/${$('profile-bio').maxLength}`; }
+function paintAccents(plus) {
+    const box = $('accent-pick'); box.textContent = '';
+    ACCENTS.forEach(c => {
+        const b = h('button', 'accent-swatch' + (pend.ac === c ? ' on' : ''), '');
+        b.type = 'button'; b.title = c; b.style.background = c;
+        b.style.opacity = plus ? '' : '.45';
+        b.onclick = () => { if (!plus) return; pend.ac = pend.ac === c ? '' : c; paintAccents(plus); };
+        box.append(b);
+    });
+}
+$('profile-bio').addEventListener('input', syncBioCount);
 function settingsTab(name) {
     document.querySelectorAll('#pf-tabs .tab').forEach(t => t.classList.toggle('on', t.dataset.tab === name));
     $('tab-profile').classList.toggle('hidden', name !== 'profile');
@@ -497,9 +571,11 @@ $('sv-form').onsubmit = async (e) => {
 };
 $('profile-form').onsubmit = async (e) => {
     e.preventDefault();
-    const out = await post({ action: 'profile-update', username: $('profile-name').value, avatar: pend.pf, bio: $('profile-bio').value });
+    const plus = !!(S.me && S.me.plus);
+    const out = await post({ action: 'profile-update', username: $('profile-name').value, avatar: pend.pf, bio: $('profile-bio').value, st: $('profile-status').value, ac: plus ? (pend.ac || '') : '' });
     if (!out.res.ok) { $('profile-msg').textContent = out.data.error || 'Could not save.'; return; }
-    S.me.username = out.data.username; S.me.avatar = out.data.avatar; S.me.bio = out.data.bio; setMe(S.me);
+    Object.assign(S.me, { username: out.data.username, avatar: out.data.avatar, bio: out.data.bio, statusText: out.data.statusText || '', accent: out.data.accent || '' });
+    setMe(S.me);
     closeModals(); toast('Profile updated.');
     loadMessages(true); loadMembers();
 };

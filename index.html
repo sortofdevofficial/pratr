@@ -98,7 +98,7 @@
         <div class="home-wrap">
           <div class="panel profile-card">
             <div class="ava lg" id="hp-ava"></div>
-            <div class="meta"><strong id="hp-name"></strong><small id="hp-email"></small><small id="hp-bio"></small><small id="hp-stats"></small></div>
+            <div class="meta"><strong id="hp-name"></strong><small id="hp-status"></small><small id="hp-email"></small><small id="hp-bio"></small><small id="hp-stats"></small></div>
             <button class="btn primary" id="hp-edit" type="button">Edit profile</button>
           </div>
           <div class="panel">
@@ -143,6 +143,7 @@
         <h1 id="chat-name">#</h1>
         <span class="topbar-sub" id="chat-sub"></span>
         <div class="spacer"></div>
+        <button class="icon-btn" id="share-btn" title="Copy link to this conversation" aria-label="Copy link"><svg viewBox="0 0 24 24" class="ic"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></button>
         <button class="icon-btn hidden" id="invite-btn" title="Invite people" aria-label="Invite"><svg viewBox="0 0 24 24" class="ic"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg></button>
         <button class="icon-btn hidden" id="members-btn" title="Members" aria-label="Members"><svg viewBox="0 0 24 24" class="ic"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg></button>
       </header>
@@ -240,7 +241,10 @@
       <div class="up"><button type="button" class="ava lg" id="pf-ava" title="Change photo"></button><input type="file" id="pf-file" accept="image/*" hidden>
         <div class="up-btns"><button type="button" class="btn ghost" id="pf-pick">Upload photo</button><button type="button" class="linkbtn" id="pf-clear">Remove</button></div></div>
       <form id="profile-form"><label class="field"><span>Username</span><input id="profile-name" maxlength="20" autocomplete="off" spellcheck="false" required></label>
-      <label class="field"><span>Bio</span><textarea id="profile-bio" rows="3" maxlength="160" placeholder="Tell people a bit about you"></textarea></label>
+      <label class="field"><span>Bio <small id="bio-count" class="muted"></small></span><textarea id="profile-bio" rows="3" maxlength="160" placeholder="Tell people a bit about you"></textarea></label>
+      <label class="field"><span>Custom status <em class="badge plus" id="st-plus">✦ Plus</em></span><input id="profile-status" maxlength="60" autocomplete="off" placeholder="What are you up to?"></label>
+      <div class="field"><span>Accent colour <em class="badge plus" id="ac-plus">✦ Plus</em></span><div class="accents" id="accent-pick"></div></div>
+      <p class="hint hidden" id="plus-lock">Custom status, accent colour and a 400-character bio are Pratr Plus features.</p>
       <label class="dev-row"><input type="checkbox" id="dev-toggle"><span><strong>Developer mode</strong><small>Right-click users, channels, servers and messages to copy their IDs.</small></span></label>
       <p class="msg-err" id="profile-msg"></p>
       <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>
@@ -281,8 +285,9 @@
     <button class="modal-x" data-close aria-label="Close">×</button>
     <h2>Pratr Plus <span class="plus-price">$1</span></h2>
     <p class="hint">A small way to support pratr and stand out.</p>
-    <ul class="perks"><li>✦ PLUS badge next to your name</li><li>Gold username in chats</li><li>✦ marker in server member lists</li><li>Gold ring around your avatar in chats</li><li>Messages up to 4000 characters (instead of 2000)</li><li>Your own voice session history</li></ul>
+    <ul class="perks"><li>✦ PLUS badge next to your name</li><li>Gold username in chats</li><li>✦ marker in server member lists</li><li>Gold ring around your avatar in chats</li><li>Messages up to 4000 characters (instead of 2000)</li><li>Your own voice session history</li><li>Custom status shown next to your name</li><li>Accent colour for your name and avatar ring</li><li>400-character bio (instead of 160)</li></ul>
     <p class="hint" id="plus-state"></p>
+    <button class="btn primary hidden" id="plus-customize" type="button">Customise my Plus profile</button>
     <div id="plus-buy"><p class="hint">To buy, join our Headquarters server and tell us you want Pratr Plus. We will activate it on your account there.</p><button class="btn primary" id="plus-buy-btn" type="button">Open Headquarters</button></div>
     <div id="plus-admin" class="hidden"><div class="sec-title"><span>Admin</span></div>
       <div class="inline-form"><input id="plus-user" placeholder="Username or email" autocomplete="off"><button class="btn primary" id="plus-on" type="button">Grant</button><button class="btn ghost" id="plus-off" type="button">Revoke</button><button class="btn ghost" id="plus-act" type="button">Activity</button></div><div class="logbox hidden" id="plus-log" style="margin-top:12px"></div></div>
@@ -314,6 +319,7 @@
 
 <div class="menu hidden" id="ctx-menu"></div>
 <div class="toast-stack" id="toast-stack"></div>
+<script src="/emoji-data.js"></script>
 <script src="/app.js"></script>
 <script src="/ui.js"></script>
 <script src="/voice.js"></script>

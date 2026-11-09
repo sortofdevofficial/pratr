@@ -1,5 +1,6 @@
 // The handler lives here; models, helpers and connection setup live in ../lib/core.js.
 const { mongoose, bcrypt, jwt, crypto, nowSeconds, onlineCut, statusOf, clientIp, geoOf, deviceOf, clientInfo, infoText, hit, DUMMY_HASH, CURRENT_SCHEMA_VERSION, ensureSchemaVersion, withV, connectDB, User, Pending, Session, Msg, Server, Channel, Voice, VStat, Signal, Log, Read, Meta, Friend, Invite, lg, VOICE_LIVE, vLive, endVoice, reapMyVoice, reapVoice, readKey, voiceRoom, shortCode, findInvite, sendOtp, nextId, createWithId, isAdmin, areFriends, isMember, srv, okImg } = require('../lib/core');
+const ACCENTS = ['#ffd36b', '#ff8fa3', '#7ee2b8', '#7cc4ff', '#b99bff', '#ffab6b', '#5ee0d6', '#f0e9db'];
 
 module.exports = async function handler(req, res) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -14,7 +15,7 @@ module.exports = async function handler(req, res) {
     if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16) return res.status(500).json({ error: 'Server is not configured.' });
     await connectDB();
     const tooMany = () => res.status(429).json({ error: 'Too many attempts. Please wait a bit and try again.' });
-    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q, status, ck, to, sig, mu, df, on, npw, lastId, afterId } = body;
+    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q, status, ck, to, sig, mu, df, on, npw, lastId, afterId, st, ac } = body;
 
     if (action === 'register') {
       const key = String(email || '').trim().toLowerCase();
@@ -78,8 +79,8 @@ module.exports = async function handler(req, res) {
     if (action === 'me') {
       await reapMyVoice(auth.userId);
       await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
-      const me = await User.findById(auth.userId).select('e n av b ps pl vt mc').lean();
-      return res.status(200).json({ id: me._id, email: me.e, username: me.n, avatar: me.av || '', bio: me.b || '', status: me.ps || 'online', plus: !!me.pl, admin: isAdmin(me.e), voice: me.vt || 0, msgs: me.mc || 0 });
+      const me = await User.findById(auth.userId).select('e n av b ps pl st ac vt mc').lean();
+      return res.status(200).json({ id: me._id, email: me.e, username: me.n, avatar: me.av || '', bio: me.b || '', status: me.ps || 'online', plus: !!me.pl, statusText: me.st || '', accent: me.ac || '', admin: isAdmin(me.e), voice: me.vt || 0, msgs: me.mc || 0 });
     }
 
     if (action === 'presence-set') {
@@ -94,12 +95,16 @@ module.exports = async function handler(req, res) {
       if (!uname) return res.status(400).json({ error: 'Username required.' });
       if (await User.exists({ n: uname, _id: { $ne: auth.userId } })) return res.status(400).json({ error: 'Username taken.' });
       if (!okImg(avatar ?? '')) return res.status(400).json({ error: 'Invalid image.' });
-      const cleanBio = String(bio || '').trim().slice(0, 160);
-      const old = await User.findById(auth.userId).select('n av b').lean();
-      await User.updateOne({ _id: auth.userId }, { n: uname, av: avatar || '', b: cleanBio });
-      const diff = [old.n !== uname && `name ${old.n} → ${uname}`, (old.av || '') !== (avatar || '') && 'avatar changed', (old.b || '') !== cleanBio && 'bio changed'].filter(Boolean);
+      const old = await User.findById(auth.userId).select('n av b pl st ac').lean();
+      const plus = !!old.pl;
+      const cleanBio = String(bio || '').trim().slice(0, plus ? 400 : 160);
+      // Status and accent are Plus-only; for everyone else the stored values (if any) stay untouched.
+      const cleanSt = plus ? String(st || '').trim().slice(0, 60) : (old.st || '');
+      const cleanAc = plus && ACCENTS.includes(ac) ? ac : (old.ac || '');
+      await User.updateOne({ _id: auth.userId }, { n: uname, av: avatar || '', b: cleanBio, st: cleanSt, ac: cleanAc });
+      const diff = [old.n !== uname && `name ${old.n} → ${uname}`, (old.av || '') !== (avatar || '') && 'avatar changed', (old.b || '') !== cleanBio && 'bio changed', (old.st || '') !== cleanSt && `status “${cleanSt || 'cleared'}”`, (old.ac || '') !== cleanAc && 'accent changed'].filter(Boolean);
       if (diff.length) await lg(0, 'profile', auth.userId, { x: diff.join(', ') });
-      return res.status(200).json({ username: uname, avatar: avatar || '', bio: cleanBio });
+      return res.status(200).json({ username: uname, avatar: avatar || '', bio: cleanBio, statusText: cleanSt, accent: cleanAc });
     }
 
     if (action === 'upload-sign') {
@@ -129,7 +134,7 @@ module.exports = async function handler(req, res) {
       if (other._id === auth.userId) return res.status(400).json({ error: "You can't add yourself." });
       const [x, y] = [auth.userId, other._id].sort((p, q2) => p - q2);
       const key = `${x}:${y}`;
-      const pair = (s) => ({ id: other._id, username: other.n, avatar: other.av || '', bio: other.b || '', status: statusOf(other), plus: !!other.pl, voice: other.vt || 0, msgs: other.mc || 0, s });
+      const pair = (s) => ({ id: other._id, username: other.n, avatar: other.av || '', bio: other.b || '', status: statusOf(other), plus: !!other.pl, statusText: other.st || '', accent: other.ac || '', voice: other.vt || 0, msgs: other.mc || 0, s });
       const cur = await Friend.findById(key).lean();
       if (cur && cur.s === 'a') return res.status(400).json({ error: 'You are already friends.' });
       if (cur && cur.s === 'p') {
@@ -151,13 +156,13 @@ module.exports = async function handler(req, res) {
       const key = `${x}:${y}`;
       const doc = await Friend.findById(key).lean();
       if (!doc || doc.s !== 'p') return res.status(404).json({ error: 'No pending request.' });
-      const other = await User.findById(uid).select('n av b ls ps pl vt mc').lean();
+      const other = await User.findById(uid).select('n av b ls ps pl st ac vt mc').lean();
       if (!other) return res.status(404).json({ error: 'User not found.' });
       if (action === 'friend-accept') {
         if (doc.by === auth.userId) return res.status(403).json({ error: 'That request is yours — waiting for them.' });
         await Friend.updateOne({ _id: key }, { $set: { s: 'a', r: nowSeconds() } });
         await lg(0, 'friend_accept', auth.userId, { u: uid });
-        return res.status(200).json({ friend: { id: other._id, username: other.n, avatar: other.av || '', bio: other.b || '', status: statusOf(other), plus: !!other.pl, voice: other.vt || 0, msgs: other.mc || 0 } });
+        return res.status(200).json({ friend: { id: other._id, username: other.n, avatar: other.av || '', bio: other.b || '', status: statusOf(other), plus: !!other.pl, statusText: other.st || '', accent: other.ac || '', voice: other.vt || 0, msgs: other.mc || 0 } });
       }
       // Denying an incoming request and cancelling your own outgoing one are the same stored event, logged differently.
       await Friend.updateOne({ _id: key }, { $set: { s: 'd', r: nowSeconds() } });
@@ -229,9 +234,9 @@ module.exports = async function handler(req, res) {
     if (action === 'friends') {
       const docs = await Friend.find({ $or: [{ a: auth.userId }, { b: auth.userId }], s: { $in: ['a', 'p'] } }).lean();
       const others = docs.map(f => f.a === auth.userId ? f.b : f.a);
-      const users = await User.find({ _id: { $in: others } }).select('n av b ls ps pl vt mc').lean();
+      const users = await User.find({ _id: { $in: others } }).select('n av b ls ps pl st ac vt mc').lean();
       const um = Object.fromEntries(users.map(u => [u._id, u]));
-      const row = (u, f) => ({ id: u._id, username: u.n, avatar: u.av || '', bio: u.b || '', status: statusOf(u), plus: !!u.pl, voice: u.vt || 0, msgs: u.mc || 0, t: f.t || 0 });
+      const row = (u, f) => ({ id: u._id, username: u.n, avatar: u.av || '', bio: u.b || '', status: statusOf(u), plus: !!u.pl, statusText: u.st || '', accent: u.ac || '', voice: u.vt || 0, msgs: u.mc || 0, t: f.t || 0 });
       const friends = [], incoming = [], outgoing = [];
       docs.forEach(f => {
         const u = um[f.a === auth.userId ? f.b : f.a];
@@ -303,8 +308,8 @@ module.exports = async function handler(req, res) {
       await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
       const server = await Server.findOne({ _id: Number(id), m: auth.userId }).lean();
       if (!server) return res.status(403).json({ error: 'Not a member.' });
-      const users = await User.find({ _id: { $in: server.m } }).select('n av b ls ps pl vt mc').lean();
-      return res.status(200).json({ owner: server.o, members: users.map(u => ({ id: u._id, username: u.n, avatar: u.av, bio: u.b, status: statusOf(u), plus: !!u.pl, online: statusOf(u) !== 'offline', voice: u.vt || 0, msgs: u.mc || 0 })) });
+      const users = await User.find({ _id: { $in: server.m } }).select('n av b ls ps pl st ac vt mc').lean();
+      return res.status(200).json({ owner: server.o, members: users.map(u => ({ id: u._id, username: u.n, avatar: u.av, bio: u.b, status: statusOf(u), plus: !!u.pl, statusText: u.st || '', accent: u.ac || '', online: statusOf(u) !== 'offline', voice: u.vt || 0, msgs: u.mc || 0 })) });
     }
 
     if (action === 'channel-delete') {
@@ -338,10 +343,10 @@ module.exports = async function handler(req, res) {
       }
       const after = Number(afterId) || 0;
       const msgs = await Msg.find({ ...match, ...(after ? { _id: { $gt: after } } : {}), d: { $ne: 1 } }).sort({ _id: -1 }).limit(100).lean();
-      const authors = await User.find({ _id: { $in: [...new Set(msgs.map(m => m.a))] } }).select('n av pl').lean();
+      const authors = await User.find({ _id: { $in: [...new Set(msgs.map(m => m.a))] } }).select('n av pl ac').lean();
       const people = Object.fromEntries(authors.map(u => [u._id, u]));
       return res.status(200).json({
-        messages: msgs.reverse().map(m => ({ id: m._id, mine: m.a === auth.userId, text: m.m, t: m.t, rx: Object.entries(m.rx || {}).map(([e, a]) => ({ e, n: a.length, me: a.includes(auth.userId) })).filter(r => r.n), author: { id: m.a, username: people[m.a]?.n || 'Unknown', avatar: people[m.a]?.av, plus: !!people[m.a]?.pl } }))
+        messages: msgs.reverse().map(m => ({ id: m._id, mine: m.a === auth.userId, text: m.m, t: m.t, rx: Object.entries(m.rx || {}).map(([e, a]) => ({ e, n: a.length, me: a.includes(auth.userId) })).filter(r => r.n), author: { id: m.a, username: people[m.a]?.n || 'Unknown', avatar: people[m.a]?.av, plus: !!people[m.a]?.pl, accent: people[m.a]?.ac || '' } }))
       });
     }
 
@@ -349,13 +354,13 @@ module.exports = async function handler(req, res) {
       const isServer = kind === 'server';
       const [okRate, me, member, chanOk, friendOk] = await Promise.all([
         hit(`msg:${auth.userId}`, 20, 10),
-        User.findById(auth.userId).select('n av pl').lean(),
+        User.findById(auth.userId).select('n av pl ac').lean(),
         isServer ? isMember(id, auth.userId) : true,
         isServer ? Channel.exists({ _id: Number(channelId), s: Number(id), k: { $ne: 'v' }, d: { $ne: 1 } }) : true,
         isServer ? true : areFriends(auth.userId, Number(id))
       ]);
       if (!okRate) return res.status(429).json({ error: 'You are sending messages too fast.' });
-      const clean = String(text || '').trim().slice(0, me && me.pl ? 4000 : 2000);
+      const clean = Array.from(String(text || '').trim()).slice(0, me && me.pl ? 4000 : 2000).join(''); // slice by character, never split an emoji
       if (!clean) return res.status(400).json({ error: 'Empty message.' });
       let target;
       if (isServer) {
@@ -367,7 +372,7 @@ module.exports = async function handler(req, res) {
         target = { b: Number(id) };
       }
       const [msg] = await Promise.all([createWithId(Msg, { a: auth.userId, ...target, m: clean }), User.updateOne({ _id: auth.userId }, { $inc: { mc: 1 } })]);
-      return res.status(200).json({ message: { id: msg._id, mine: true, text: msg.m, t: msg.t, rx: [], author: { id: auth.userId, username: me?.n || 'You', avatar: me?.av, plus: !!me?.pl } } });
+      return res.status(200).json({ message: { id: msg._id, mine: true, text: msg.m, t: msg.t, rx: [], author: { id: auth.userId, username: me?.n || 'You', avatar: me?.av, plus: !!me?.pl, accent: me?.ac || '' } } });
     }
 
     // ---------- read state (seen/unseen) ----------
