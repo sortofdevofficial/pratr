@@ -169,6 +169,39 @@
         </aside>
         <aside class="dmcard" id="dm-card"></aside>
       </div>
+      <div class="oc-page hidden" id="oc-page">
+        <div class="oc-inner">
+          <header class="oc-head">
+            <div><h2 class="oc-title">Server overclock</h2><p class="hint" id="boost-sub">Overclocks are permanent. Every overclock this server receives stays counted forever.</p></div>
+            <button class="btn ghost sm" id="oc-back" type="button">Back to chat</button>
+          </header>
+          <div class="oc-grid">
+            <section class="oc-col">
+              <div class="boost-stats">
+                <div><b id="boost-count">0</b><span>overclocks</span></div>
+                <div><b id="boost-tier">0</b><span>perk tiers</span></div>
+                <div><b id="boost-mine">0</b><span>yours</span></div>
+              </div>
+              <div class="oc-meter"><i id="oc-fill"></i></div>
+              <p class="hint" id="boost-next"></p>
+              <div class="boost-actions"><button class="btn primary" id="boost-1" type="button">Overclock ×1</button><button class="btn ghost" id="boost-2" type="button">Overclock ×2</button><button class="btn ghost" id="boost-refresh" type="button">Refresh</button></div>
+              <div class="sec-title"><span>Server perks</span></div>
+              <div class="boost-perks" id="boost-perks"></div>
+              <div id="boost-admin" class="hidden"><div class="sec-title"><span>Admin overclocks</span></div>
+                <div class="inline-form"><input id="boost-admin-user" placeholder="Username or email" autocomplete="off"><input id="boost-admin-count" type="number" value="100" title="Overclocks" aria-label="Overclocks"><button class="btn primary" id="boost-admin-give" type="button">Give</button><button class="btn ghost" id="boost-admin-take" type="button">Take</button></div>
+              </div>
+            </section>
+            <section class="oc-col">
+              <div id="boost-assets"></div>
+              <div class="sec-title"><span>Recent overclocks</span></div>
+              <div class="logbox" id="boost-hist"></div>
+              <div class="sec-title"><span>Your monthly overclocks</span></div>
+              <div class="logbox" id="boost-grants"></div>
+            </section>
+          </div>
+          <p class="msg-err" id="boost-msg"></p>
+        </div>
+      </div>
     </section>
   </main>
 </div>
@@ -294,7 +327,7 @@
     <button class="modal-x" data-close aria-label="Close">×</button>
     <h2>Pratr Plus <span class="plus-price">$1 <small>/ month</small></span></h2>
     <p class="hint">A one-month plan. Perks work while it is active, and they come back when you renew. Your overclocks and history are kept forever.</p>
-    <ul class="perks"><li>✦ PLUS badge next to your name</li><li>Gold username in chats</li><li>✦ marker in server member lists</li><li>Gold ring around your avatar in chats</li><li><b>A glowing profile card in any colour you pick</b></li><li>Messages up to 4000 characters (instead of 2000)</li><li>Custom status timer, accent colour and 400-character bio</li><li>Your own voice session history</li><li><b>2 server overclocks every month</b> — they never expire</li><li>Overclocks unlock banners, logos, custom emoji, stickers and more</li></ul>
+    <ul class="perks"><li>✦ PLUS badge next to your name</li><li>Gold username in chats</li><li>✦ marker in server member lists</li><li>Gold ring around your avatar in chats</li><li><b>A glowing profile card in any colour you pick</b></li><li>Messages up to 4000 characters (instead of 2000)</li><li>Custom status timer, accent colour and 400-character bio</li><li>Your own voice session history</li><li><b>2 server overclocks every month</b> — they never expire</li><li>Overclocks unlock banners, logos, long messages and badges</li></ul>
     <div class="plus-plan" id="plus-plan"></div>
     <p class="hint" id="plus-state"></p>
     <button class="btn primary hidden" id="plus-customize" type="button">Customise my Plus profile</button>
@@ -308,33 +341,6 @@
     <div class="sec-title"><span>Plan &amp; overclock history</span></div>
     <div class="logbox" id="plus-history"></div>
     <p class="msg-err" id="plus-msg"></p>
-  </div>
-</div>
-
-<div class="modal hidden" id="modal-boosts" role="dialog" aria-modal="true">
-  <div class="modal-card wide">
-    <button class="modal-x" data-close aria-label="Close">×</button>
-    <h2 class="oc-title">Server overclock</h2>
-    <p class="hint" id="boost-sub">Overclocks are permanent. Every overclock this server receives stays counted forever.</p>
-    <div class="boost-stats">
-      <div><b id="boost-count">0</b><span>overclocks</span></div>
-      <div><b id="boost-tier">0</b><span>perk tiers</span></div>
-      <div><b id="boost-mine">0</b><span>yours</span></div>
-    </div>
-    <div class="oc-meter"><i id="oc-fill"></i></div>
-    <p class="hint" id="boost-next"></p>
-    <div class="boost-actions"><button class="btn primary" id="boost-1" type="button">Overclock ×1</button><button class="btn ghost" id="boost-2" type="button">Overclock ×2</button><button class="btn ghost" id="boost-refresh" type="button">Refresh</button></div>
-    <div class="sec-title"><span>Server perks</span></div>
-    <div class="boost-perks" id="boost-perks"></div>
-    <div id="boost-assets"></div>
-    <div id="boost-admin" class="hidden"><div class="sec-title"><span>Admin overclocks</span></div>
-      <div class="inline-form"><input id="boost-admin-user" placeholder="Username or email" autocomplete="off"><input id="boost-admin-count" type="number" value="100" title="Overclocks" aria-label="Overclocks"><button class="btn primary" id="boost-admin-give" type="button">Give</button><button class="btn ghost" id="boost-admin-take" type="button">Take</button></div>
-    </div>
-    <div class="sec-title"><span>Recent overclocks</span></div>
-    <div class="logbox" id="boost-hist"></div>
-    <div class="sec-title"><span>Your monthly overclocks</span></div>
-    <div class="logbox" id="boost-grants"></div>
-    <p class="msg-err" id="boost-msg"></p>
   </div>
 </div>
 

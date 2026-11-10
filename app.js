@@ -22,7 +22,7 @@ const S = {
     me: null, servers: [], friends: [], requests: { in: [], out: [] }, view: 'home',
     server: null, channels: [], channelId: null, dm: null, members: [],
     last: {}, chLoaded: false, sig: '', sending: false, membersOn: (() => { try { const v = localStorage.getItem('members'); if (v) return v === '1'; } catch {} return window.innerWidth > 760; })(),
-    login: true, t1: null, t2: null, t3: null, t4: null, maxId: {}, fullAt: {}, voice: {}, reply: null
+    login: true, t1: null, t2: null, t3: null, t4: null, maxId: {}, fullAt: {}, voice: {}, reply: null, oc: false
 };
 const V = { on: false, sid: null, chId: null, name: '', sname: '', stream: null, peers: new Map(), watch: new Map(), speak: new Set(), early: {}, cool: {}, joined: {}, ice: [], muted: false, deaf: false, mutedBefore: false, sig: '', ctx: null };
 
@@ -35,7 +35,16 @@ function statEl(on, total) { const s = h('small', 'stat'); s.append(h('i', 'pdot
 const bg = (url, name) => url ? `center/cover url("${url}")` : color(name || '?');
 function avatar(name, cls = '', url = '') { const a = h('div', 'ava ' + cls, url ? '' : ini(name)); a.style.background = bg(url, name); return a; }
 function userAva(u, cls = '') { const a = avatar(u.username || u.email, cls, u.avatar); if (u.plus) { a.classList.add('plus'); const c = u.glow || u.accent; if (c) a.style.setProperty('--ac', c); if (u.glow) { a.classList.add('glow'); a.style.setProperty('--pg', u.glow); } } return a; }
-const nameColour = (u) => u.plus && u.accent ? u.accent : u.plus ? '#ffd36b' : color(u.username || u.email).replace('48%', '70%');
+const nameColour = (u) => u.plus && u.accent ? ink(u.accent) : u.plus ? '#ffd36b' : color(u.username || u.email).replace('48%', '70%');
+// Accent colours are picked freely, so lighten near-black ones before using them as text.
+function ink(c) {
+    const s = String(c || '');
+    if (!/^#[0-9a-f]{6}$/i.test(s)) return s;
+    let r = parseInt(s.slice(1, 3), 16), g = parseInt(s.slice(3, 5), 16), b = parseInt(s.slice(5, 7), 16);
+    for (let i = 0; i < 12 && 0.2126 * r + 0.7152 * g + 0.0722 * b < 165; i++) { r += (255 - r) * 0.12; g += (255 - g) * 0.12; b += (255 - b) * 0.12; }
+    const hx = (v) => Math.round(v).toString(16).padStart(2, '0');
+    return `#${hx(r)}${hx(g)}${hx(b)}`;
+}
 const isOwner = () => !!(S.me && S.server && S.server.owner === S.me.id);
 const curChannel = () => S.channels.find(c => c.id === S.channelId) || null;
 const fmtTime = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -154,7 +163,7 @@ function setMe(u) {
     const name = u.username || 'user';
     const letter = u.avatar ? '' : ini(name);
     $('me-name').textContent = $('hp-name').textContent = name;
-    $('me-name').style.color = $('hp-name').style.color = u.plus ? (u.accent || '#ffd36b') : '';
+    $('me-name').style.color = $('hp-name').style.color = u.plus ? ink(u.accent || '#ffd36b') : '';
     $('me-email').textContent = $('hp-email').textContent = u.email || '';
     $('hp-status').textContent = u.statusText || '';
     $('hp-status').title = u.statusText && u.statusUntil ? `Expires ${new Date(u.statusUntil * 1000).toLocaleString()}` : '';
@@ -192,7 +201,7 @@ function startTimers() {
     clearInterval(S.t1); clearInterval(S.t2); clearInterval(S.t3);
     S.t3 = setInterval(() => { if (!document.hidden) loadVoice(); }, 2500);
     clearInterval(S.t4); S.t4 = setInterval(() => pollUnread(), 5000); pollUnread(); // also runs hidden, for notifications
-    S.t1 = setInterval(() => { if (!document.hidden && S.view !== 'home') loadMessages(false); }, 3000);
+    S.t1 = setInterval(() => { if (!document.hidden && S.view !== 'home' && !S.oc) loadMessages(false); }, 3000);
     S.t2 = setInterval(async () => {
         if (document.hidden) return;
         await Promise.all([loadServers(), loadFriends()]);
@@ -303,7 +312,7 @@ async function loadDiscover() {
             openServer(s.id);
         };
         const name = h('strong', '', s.name);
-        if (s.accent) name.style.color = s.accent;
+        if (s.accent) name.style.color = ink(s.accent);
         if (s.boosts) { const star = h('em', 'badge boost', `✦ ${s.boosts}`); star.title = `${s.boosts} overclocks · ${s.tier || 0} perk tiers`; name.append(' ', star); }
         b.append(name, h('p', '', s.desc || 'No description yet.'), statEl(s.online || 0, s.count), btn);
         c.append(h('div', 'disc-top'), avatar(s.name, 'xl', s.logo || s.icon), b);
@@ -313,13 +322,13 @@ async function loadDiscover() {
 $('disc-q').oninput = () => { clearTimeout(discT); discT = setTimeout(loadDiscover, 250); };
 
 function goHome() {
-    S.view = 'home'; S.server = null; S.dm = null; S.channels = []; S.channelId = null; S.members = []; S.sig = '';
+    S.view = 'home'; S.server = null; S.dm = null; S.channels = []; S.channelId = null; S.members = []; S.sig = ''; S.oc = false;
     renderAll(); syncUrl();
 }
 async function openServer(id) {
     const s = S.servers.find(x => x.id === id);
     if (!s) return;
-    S.view = 'server'; S.server = s; S.dm = null; S.chLoaded = false; S.channels = []; S.channelId = null; S.members = []; S.sig = '';
+    S.view = 'server'; S.server = s; S.dm = null; S.chLoaded = false; S.channels = []; S.channelId = null; S.members = []; S.sig = ''; S.oc = false;
     $('messages').textContent = '';
     renderAll();
     await loadChannels(true);
@@ -330,7 +339,7 @@ async function openServer(id) {
     closeNav();
 }
 function openDM(user) {
-    S.view = 'dm'; S.dm = user; S.server = null; S.channels = []; S.channelId = null; S.sig = '';
+    S.view = 'dm'; S.dm = user; S.server = null; S.channels = []; S.channelId = null; S.sig = ''; S.oc = false;
     $('messages').textContent = '';
     renderAll();
     loadMessages(true); // it marks the conversation read once the real cursor is known
@@ -339,7 +348,7 @@ function openDM(user) {
     $('chat-input').focus();
 }
 function selectChannel(id) {
-    S.channelId = id; S.last[S.server.id] = id; S.sig = '';
+    S.channelId = id; S.last[S.server.id] = id; S.sig = ''; S.oc = false;
     $('messages').textContent = '';
     renderSide(); renderMain();
     loadMessages(true); // it marks the conversation read once the real cursor is known
@@ -354,7 +363,7 @@ let navSilent = false; // true while the current view came from the address bar,
 function routePath() {
     if (S.view === 'discover') return '/discover';
     if (S.view === 'dm' && S.dm) return '/dm/' + encodeURIComponent(S.dm.username || S.dm.id);
-    if (S.view === 'server' && S.server) return '/channels/' + S.server.id + (S.channelId != null ? '/' + S.channelId : '');
+    if (S.view === 'server' && S.server) return '/channels/' + S.server.id + (S.oc ? '/overclock' : S.channelId != null ? '/' + S.channelId : '');
     return '/friends';
 }
 function syncUrl(replace) {
@@ -375,6 +384,7 @@ async function goLink(path) {
         const sid = Number(parts[1]);
         if (!S.servers.some(s => s.id === sid)) return toast('You are not a member of that server.', true);
         await openServer(sid);
+        if (parts[2] === 'overclock') return openBoosts();
         const cid = Number(parts[2]);
         const c = S.channels.find(x => x.id === cid);
         if (!c) return;
@@ -383,7 +393,7 @@ async function goLink(path) {
         return;
     }
     if (parts[0] === 'discover') {
-        S.view = 'discover'; S.server = null; S.dm = null; S.channels = []; S.channelId = null; S.members = []; S.sig = '';
+        S.view = 'discover'; S.server = null; S.dm = null; S.channels = []; S.channelId = null; S.members = []; S.sig = ''; S.oc = false;
         renderAll(); loadDiscover(); syncUrl();
         return;
     }
@@ -397,6 +407,7 @@ async function restoreRoute() {
     } finally { navSilent = false; }
 }
 window.addEventListener('popstate', () => { if (S.token && S.me) restoreRoute(); });
+$('oc-back').onclick = () => closeBoosts();
 $('share-btn').onclick = () => copy(location.origin + routePath());
 
 /* ---------- composer ---------- */

@@ -537,12 +537,27 @@ input.colour-input:disabled { cursor: not-allowed; }
 }
 
 /* ---------- server overclock ---------- */
-.oc-title { background: linear-gradient(90deg, #5ee0d6, #6ea8ff 60%, #b07bff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+/* Lives inside the server view like a channel, not a popup. */
+.oc-page { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 22px 40px; }
+.oc-page.hidden { display: none; }
+.oc-inner { max-width: 1080px; margin: 0 auto; }
+.oc-head { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 16px; }
+.oc-head > div { flex: 1; min-width: 0; }
+.oc-head .hint { margin: 4px 0 0; }
+.oc-title { margin: 0; font-size: 22px; background: linear-gradient(90deg, #5ee0d6, #6ea8ff 60%, #b07bff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.oc-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.oc-col { min-width: 0; }
+.oc-col .logbox { max-height: 32vh; }
+@media (max-width: 900px) {
+  .oc-grid { grid-template-columns: minmax(0, 1fr); }
+  .oc-page { padding: 16px 14px 32px; }
+  .oc-head { flex-direction: column; gap: 10px; }
+}
 .oc-meter { height: 8px; border-radius: 99px; background: var(--bg1); border: 1px solid var(--line); overflow: hidden; margin: 2px 0 10px; }
 .oc-meter i { display: block; height: 100%; width: 0; border-radius: 99px; background: linear-gradient(90deg, #5ee0d6, #6ea8ff, #b07bff); box-shadow: 0 0 12px rgba(94, 224, 214, .55); transition: width .4s ease; }
-#modal-boosts .boost-actions .btn.primary { background: linear-gradient(135deg, #14b8a6, #3b82f6); border-color: transparent; }
-#modal-boosts .boost-actions .btn.primary:hover:not(:disabled) { filter: brightness(1.12); }
-#modal-boosts .logrow span { color: var(--txt); }
+#oc-page .boost-actions .btn.primary { background: linear-gradient(135deg, #14b8a6, #3b82f6); border-color: transparent; }
+#oc-page .boost-actions .btn.primary:hover:not(:disabled) { filter: brightness(1.12); }
+#oc-page .logrow span { color: var(--txt); }
 #srv-boosts { cursor: pointer; color: #5ee0d6; border-color: rgba(94, 224, 214, .4); }
 
 /* ---------- replies, forwarding, unread DMs ---------- */

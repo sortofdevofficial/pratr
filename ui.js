@@ -27,7 +27,7 @@ function renderSide() {
     const server = S.view === 'server' && S.server;
     const title = $('side-title');
     title.textContent = server ? S.server.name : S.view === 'discover' ? 'Discover' : 'Home';
-    const accent = server ? S.server.accent || '' : '';
+    const accent = server ? ink(S.server.accent || '') : '';
     title.style.background = accent ? `linear-gradient(90deg, ${accent}, ${accent})` : '';
     const sh = $('side-head');
     let logoEl = sh.querySelector('.side-logo');
@@ -79,11 +79,11 @@ function renderSide() {
         }
         list.append(t);
         chans.forEach(c => {
-            const it = h('div', 'ch-item' + (c.id === S.channelId ? ' active' : ''));
+            const it = h('div', 'ch-item' + (c.id === S.channelId && !S.oc ? ' active' : ''));
             it.tabIndex = 0; it.setAttribute('role', 'button');
                     it.innerHTML = c.kind === 'v' ? ICON.speaker : ICON.hash;
             const un = c.kind === 't' && S.unread.channels[c.id];
-            it.append(h('span', c.id === S.channelId ? '' : (un ? 'unread' : ''), c.name));
+            it.append(h('span', c.id === S.channelId && !S.oc ? '' : (un ? 'unread' : ''), c.name));
             if (un && un.pings) it.append(h('em', 'ping-badge', String(un.pings)));
             else if (un) it.append(h('i', 'unread-dot'));
             if (isOwner()) {
@@ -101,10 +101,10 @@ function renderSide() {
 
     const ocSec = h('div', 'sec-title'); ocSec.append(h('span', '', 'Overclocks'));
     list.append(ocSec);
-    const oc = h('div', 'ch-item oc-item');
+    const oc = h('div', 'ch-item oc-item' + (S.oc ? ' active' : ''));
     oc.tabIndex = 0; oc.setAttribute('role', 'button');
     oc.append(h('span', 'oc-star', '✦'), h('span', '', 'Server overclock'), h('em', 'oc-count', String(S.server.boosts || 0)));
-    oc.title = `${S.server.boosts || 0} overclocks · ${S.server.tier || 0} perk tiers — perks, art, emoji and stickers`;
+    oc.title = `${S.server.boosts || 0} overclocks · ${S.server.tier || 0} perk tiers — perks, art, free emoji and stickers`;
     oc.onclick = () => openBoosts();
     oc.onkeydown = (e) => { if (e.key === 'Enter') openBoosts(); };
     list.append(oc);
@@ -123,7 +123,7 @@ function renderFriends() {
         const meta = h('div', 'meta');
         const nm = h('strong', '', u.username || u.email); nm.style.color = nameColour(u);
         meta.append(nm);
-        if (u.statusText) { const st = h('small', '', u.statusText); st.style.color = u.plus && u.accent ? u.accent : ''; meta.append(st); }
+        if (u.statusText) { const st = h('small', '', u.statusText); st.style.color = u.plus && u.accent ? ink(u.accent) : ''; meta.append(st); }
         meta.append(h('small', '', u.bio || u.email || ''), h('small', 'stats', `${fmtDur(u.voice || 0)} in voice · ${u.msgs || 0} messages`));
         const btn = h('button', 'btn ghost', 'Message');
         btn.onclick = () => openDM(u);
@@ -170,15 +170,21 @@ function renderMain() {
     if (home) { renderFriends(); return; }
     if (disc) return;
     const isServer = S.view === 'server';
+    const oc = isServer && S.oc;
     const ch = isServer ? curChannel() : null;
     const icon = $('chat-icon');
     icon.textContent = '';
-    if (isServer) {
+    if (oc) {
+        icon.textContent = '✦';
+        $('chat-name').textContent = 'Server overclock';
+        $('chat-name').style.color = S.server.accent ? ink(S.server.accent) : '';
+        $('chat-sub').textContent = S.server.name;
+    } else if (isServer) {
         if (S.server.logo && !(ch && ch.kind === 'v')) {
             const im = h('img', 'topbar-logo'); im.src = S.server.logo; im.alt = ''; icon.append(im);
         } else icon.innerHTML = ch && ch.kind === 'v' ? ICON.speaker : ICON.hash;
         $('chat-name').textContent = ch ? ch.name : S.server.name;
-        $('chat-name').style.color = S.server.accent || '';
+        $('chat-name').style.color = ink(S.server.accent || '');
         $('chat-sub').textContent = ch ? S.server.name : '';
     } else {
         const n = S.dm.username || S.dm.email;
@@ -192,12 +198,14 @@ function renderMain() {
         tb.classList.toggle('has-banner', isServer && !!S.server.banner);
         tb.style.backgroundImage = isServer && S.server.banner ? `linear-gradient(90deg, rgba(6,12,25,.55), rgba(6,12,25,.85)), url("${S.server.banner}")` : '';
     }
-    $('invite-btn').classList.toggle('hidden', !isServer);
-    $('members-btn').classList.remove('hidden');
+    $('invite-btn').classList.toggle('hidden', !isServer || oc);
+    $('members-btn').classList.toggle('hidden', oc);
     $('members-btn').title = isServer ? 'Members' : 'Profile';
     $('members-btn').classList.toggle('on', S.membersOn);
     $('chat-body').classList.toggle('members-on', isServer && S.membersOn);
     $('chat-body').classList.toggle('dm-on', !isServer && S.membersOn);
+    $('chat-body').classList.toggle('hidden', oc);
+    $('oc-page').classList.toggle('hidden', !oc);
     if (!isServer) renderDmCard();
 
     const none = isServer && S.chLoaded && !ch;
@@ -238,7 +246,7 @@ function renderDmCard() {
     about.append(h('h5', '', 'About me'), h('p', '', u.bio || 'No bio yet.'));
     const nm = h('strong', '', n); nm.style.color = nameColour(u);
     body.append(nm, h('span', 'badge', 'FRIEND'));
-    if (u.statusText) { const st = h('small', 'muted', u.statusText); st.style.color = u.plus && u.accent ? u.accent : ''; body.append(st); }
+    if (u.statusText) { const st = h('small', 'muted', u.statusText); st.style.color = u.plus && u.accent ? ink(u.accent) : ''; body.append(st); }
     body.append(h('small', 'muted', SLABEL[u.status] || 'Offline'), h('small', 'stats', `${fmtDur(u.voice || 0)} in voice · ${u.msgs || 0} messages`), about);
     card.textContent = '';
     card.append(h('div', 'dm-banner'), userAva(u, 'xl'), body);
@@ -926,8 +934,18 @@ async function openBoosts() {
     if (!S.server) return;
     $('boost-msg').textContent = '';
     $('boost-msg').style.color = '';
-    openModal('modal-boosts');
+    S.oc = true;
+    renderAll();
+    syncUrl();
+    closeNav();
     await loadBoosts();
+}
+function closeBoosts() {
+    if (!S.oc) return;
+    S.oc = false;
+    renderAll();
+    syncUrl();
+    $('chat-input').focus();
 }
 async function loadBoosts() {
     if (!S.server) return;
@@ -968,7 +986,7 @@ function paintBoosts() {
     $('boost-1').title = $('boost-2').title = d.mine ? `${d.mine} available` : 'No overclocks available';
 
     // Admins can apply a big batch at once after topping up their own balance.
-    const acts = document.querySelector('#modal-boosts .boost-actions');
+    const acts = document.querySelector('#oc-page .boost-actions');
     let big = $('boost-100');
     if (!big && acts) {
         big = h('button', 'btn ghost hidden', 'Overclock ×100');
@@ -1074,9 +1092,9 @@ function renderBoostAssets(d) {
     box.append(assetSection('Stickers', d.stickers || [], 'sticker', owner, d));
 }
 function assetSection(title, list, kind, owner, d) {
-    const wrap = h('div'), cap = kind === 'emoji' ? 50 : 30;
+    const wrap = h('div'), cap = kind === 'emoji' ? 50 : 10;
     const sec = h('div', 'sec-title');
-    sec.append(h('span', '', `${title} — ${list.length}/${cap}`));
+    sec.append(h('span', '', `${title} — ${list.length}/${cap} · free`));
     wrap.append(sec);
     if (list.length) {
         const grid = h('div', 'asset-grid');

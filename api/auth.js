@@ -184,15 +184,13 @@ module.exports = async function handler(req, res) {
       if (!(await hit(`asset:${auth.userId}`, 60, 3600))) return tooMany();
       const isEmoji = action.startsWith('emoji');
       const adding = action.endsWith('-add');
-      const server = await Server.findOne({ _id: Number(id), o: auth.userId }).select('bp em sk').lean();
+      const server = await Server.findOne({ _id: Number(id), o: auth.userId }).select('em sk').lean();
       if (!server) return res.status(403).json({ error: 'Only the owner can edit the server.' });
-      const perk = isEmoji ? 'emoji' : 'sticker';
-      if (!(server.bp || []).includes(perk)) return res.status(400).json({ error: `Enable the ${isEmoji ? 'custom emoji' : 'stickers'} perk first.` });
       let nm = String(name || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
       if (!nm) return res.status(400).json({ error: 'Give it a short name (letters, numbers, underscores).' });
       const list = (isEmoji ? server.em : server.sk) || [];
       if (adding) {
-        if (list.length >= (isEmoji ? 50 : 30)) return res.status(400).json({ error: `This server already has the maximum number of ${isEmoji ? 'emoji' : 'stickers'}.` });
+        if (list.length >= (isEmoji ? 50 : 10)) return res.status(400).json({ error: `This server already has the maximum number of ${isEmoji ? 'emoji (50)' : 'stickers (10)'}.` });
         if (list.some(x => x.n === nm)) return res.status(400).json({ error: 'That name is already used here.' });
         if (!okImg(icon ?? '')) return res.status(400).json({ error: 'Upload an image first.' });
         await Server.updateOne({ _id: server._id }, isEmoji ? { $push: { em: { n: nm, u: icon } } } : { $push: { sk: { n: nm, u: icon } } });
