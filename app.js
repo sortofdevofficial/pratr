@@ -46,6 +46,13 @@ function ink(c) {
     return `#${hx(r)}${hx(g)}${hx(b)}`;
 }
 const isOwner = () => !!(S.me && S.server && S.server.owner === S.me.id);
+const SERVER_FONT = {
+    rounded: '"Segoe UI Rounded", "Nunito", "Trebuchet MS", system-ui, sans-serif',
+    serif: 'Georgia, "Times New Roman", serif',
+    mono: 'ui-monospace, "Cascadia Code", Consolas, monospace',
+    wide: '"Trebuchet MS", "Segoe UI", system-ui, sans-serif'
+};
+const fontOf = (key) => SERVER_FONT[key] || '';
 const curChannel = () => S.channels.find(c => c.id === S.channelId) || null;
 const fmtTime = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 function fmtDay(t) {
@@ -313,6 +320,7 @@ async function loadDiscover() {
         };
         const name = h('strong', '', s.name);
         if (s.accent) name.style.color = ink(s.accent);
+        if (s.font && fontOf(s.font)) name.style.fontFamily = fontOf(s.font);
         if (s.boosts) { const star = h('em', 'badge boost', `✦ ${s.boosts}`); star.title = `${s.boosts} overclocks · ${s.tier || 0} perk tiers`; name.append(' ', star); }
         b.append(name, h('p', '', s.desc || 'No description yet.'), statEl(s.online || 0, s.count), btn);
         c.append(h('div', 'disc-top'), avatar(s.name, 'xl', s.logo || s.icon), b);
@@ -535,8 +543,10 @@ function linkEmbed(path) { // a rich card for pratr links pasted in chat
     return null;
 }
 function customEmojiMap() {
-    const m = new Map();
-    if (S.view === 'server' && S.server && Array.isArray(S.server.emoji)) S.server.emoji.forEach(e => { if (e && e.n && e.u) m.set(e.n, e.u); });
+    // Every server the user belongs to, so :name: works in any chat (Discord-style).
+    const m = new Map(), add = (s) => { if (s && Array.isArray(s.emoji)) s.emoji.forEach(e => { if (e && e.n && e.u && !m.has(e.n)) m.set(e.n, e.u); }); };
+    add(S.server);
+    (S.servers || []).forEach(add);
     return m;
 }
 const CUSTOM_TOKEN = /:([a-z0-9_]{2,20}):/g;
@@ -562,7 +572,10 @@ function richText(text, canAll) { // returns [element, mentionsMe]; text nodes o
     segments(text, canAll ? [...mnames(), 'everyone', 'here'] : mnames()).forEach(s => {
         if (typeof s === 'string') return appendCustomEmoji(t, s, map);
         const all = canAll && /^(everyone|here)$/i.test(s.who), hit = all || s.who.toLowerCase() === mine; if (hit) me = true;
-        t.append(h('span', 'mention' + (hit ? ' me' : '') + (all ? ' all' : ''), s.m));
+        const sp = h('span', 'mention' + (hit ? ' me' : '') + (all ? ' all' : ''), s.m);
+        sp.onclick = all ? () => { if (typeof openRoleCard === 'function') openRoleCard(s.who.toLowerCase()); }
+            : () => { if (typeof openUserCard === 'function') openUserCard(s.who); };
+        t.append(sp);
     });
     return [t, me];
 }

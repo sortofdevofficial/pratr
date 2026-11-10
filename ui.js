@@ -28,7 +28,9 @@ function renderSide() {
     const title = $('side-title');
     title.textContent = server ? S.server.name : S.view === 'discover' ? 'Discover' : 'Home';
     const accent = server ? ink(S.server.accent || '') : '';
-    title.style.background = accent ? `linear-gradient(90deg, ${accent}, ${accent})` : '';
+    title.style.background = '';
+    title.style.color = accent || '';
+    title.style.fontFamily = server ? fontOf(S.server.font) : '';
     const sh = $('side-head');
     let logoEl = sh.querySelector('.side-logo');
     if (server && S.server.logo) {
@@ -121,15 +123,16 @@ function renderFriends() {
         const c = h('div', 'friend-card');
         if (u.glow) { c.classList.add('glow'); c.style.setProperty('--pg', u.glow); }
         const meta = h('div', 'meta');
-        const nm = h('strong', '', u.username || u.email); nm.style.color = nameColour(u);
+        const nm = h('strong', u.plus ? 'plus-name' : '', u.username || u.email); nm.style.color = nameColour(u);
         meta.append(nm);
         if (u.statusText) { const st = h('small', '', u.statusText); st.style.color = u.plus && u.accent ? ink(u.accent) : ''; meta.append(st); }
         meta.append(h('small', '', u.bio || u.email || ''), h('small', 'stats', `${fmtDur(u.voice || 0)} in voice · ${u.msgs || 0} messages`));
         const btn = h('button', 'btn ghost', 'Message');
-        btn.onclick = () => openDM(u);
+        btn.onclick = (e) => { e.stopPropagation(); openDM(u); };
         c._ctx = [['Copy link', () => copy(location.origin + '/dm/' + encodeURIComponent(u.username || u.id))], ...userItems(u)];
         const av = userAva(u); av.append(dot(u.status));
         c.append(av, meta, btn);
+        c.onclick = () => openUserCard(u);
         grid.append(c);
     });
 }
@@ -178,6 +181,7 @@ function renderMain() {
         icon.textContent = '✦';
         $('chat-name').textContent = 'Server overclock';
         $('chat-name').style.color = S.server.accent ? ink(S.server.accent) : '';
+        $('chat-name').style.fontFamily = fontOf(S.server.font);
         $('chat-sub').textContent = S.server.name;
     } else if (isServer) {
         if (S.server.logo && !(ch && ch.kind === 'v')) {
@@ -185,12 +189,14 @@ function renderMain() {
         } else icon.innerHTML = ch && ch.kind === 'v' ? ICON.speaker : ICON.hash;
         $('chat-name').textContent = ch ? ch.name : S.server.name;
         $('chat-name').style.color = ink(S.server.accent || '');
+        $('chat-name').style.fontFamily = ch ? '' : fontOf(S.server.font);
         $('chat-sub').textContent = ch ? S.server.name : '';
     } else {
         const n = S.dm.username || S.dm.email;
         icon.append(avatar(n, 'sm', S.dm.avatar));
         $('chat-name').textContent = n;
         $('chat-name').style.color = '';
+        $('chat-name').style.fontFamily = '';
         $('chat-sub').textContent = '';
     }
     const tb = document.querySelector('#view-chat .topbar');
@@ -240,16 +246,18 @@ function renderEmpty() {
 function renderDmCard() {
     const u = S.dm, card = $('dm-card');
     if (!u) return;
-    card.classList.toggle('glow', !!u.glow);
-    if (u.glow) card.style.setProperty('--pg', u.glow); else card.style.removeProperty('--pg');
+    const glow = !!(u.plus && (u.glow || u.accent));
+    card.classList.toggle('glow', glow);
+    if (glow) card.style.setProperty('--pg', u.glow || u.accent); else card.style.removeProperty('--pg');
     const n = u.username || u.email, body = h('div', 'dm-body'), about = h('div', 'dm-about');
     about.append(h('h5', '', 'About me'), h('p', '', u.bio || 'No bio yet.'));
-    const nm = h('strong', '', n); nm.style.color = nameColour(u);
+    const nm = h('strong', u.plus ? 'plus-name' : '', n); nm.style.color = nameColour(u);
     body.append(nm, h('span', 'badge', 'FRIEND'));
     if (u.statusText) { const st = h('small', 'muted', u.statusText); st.style.color = u.plus && u.accent ? ink(u.accent) : ''; body.append(st); }
     body.append(h('small', 'muted', SLABEL[u.status] || 'Offline'), h('small', 'stats', `${fmtDur(u.voice || 0)} in voice · ${u.msgs || 0} messages`), about);
     card.textContent = '';
     card.append(h('div', 'dm-banner'), userAva(u, 'xl'), body);
+    card.onclick = () => openUserCard(u);
 }
 
 function renderMembers() {
@@ -265,11 +273,12 @@ function renderMembers() {
             const r = h('div', 'mem' + (title === 'Offline' ? ' off' : '')), a = userAva(m, 'sm');
             a.append(dot(m.status));
             r._ctx = [...userItems(m), ...(isOwner() && S.me && m.id !== S.me.id ? ['-', ['Kick from server', () => kickMember(m), true]] : [])]; r.title = m.statusText || m.bio || '';
-            const label = h('div', 'mem-name'), nm = h('span', '', m.username || 'Member'); nm.style.color = nameColour(m); label.append(nm);
+            const label = h('div', 'mem-name'), nm = h('span', m.plus ? 'plus-name' : '', m.username || 'Member'); nm.style.color = nameColour(m); label.append(nm);
             if (m.statusText) label.append(h('small', 'mem-st', m.statusText));
             r.append(a, label, h('small', 'mem-stats', `${fmtDur(m.voice || 0)} · ${m.msgs || 0} msgs`));
             if (S.server && m.id === S.server.owner) r.append(h('em', 'badge', 'OWNER'));
             if (m.plus) r.append(h('em', 'badge plus', '✦'));
+            r.onclick = () => openUserCard(m);
             box.append(r);
         });
     });
@@ -318,12 +327,15 @@ function renderMessages(list, force) {
         if (!m.pending) row.id = 'msg-' + m.id;
         if (m.pending) row.classList.add('pending');
         const gutter = h('div', 'gutter');
-        if (same) gutter.textContent = fmtTime(m.t); else gutter.append(userAva(m.author));
+        if (same) gutter.textContent = fmtTime(m.t);
+        else { const av = userAva(m.author); av.onclick = () => openUserCard(m.author); gutter.append(av); }
         const body = h('div', 'body');
         if (!same) {
             const head = h('div', 'head');
-            const name = h('strong', '', m.author.username);
+            const name = h('strong', '' , m.author.username);
+            name.className = m.author.plus ? 'plus-name' : '';
             name.style.color = nameColour(m.author);
+            name.onclick = () => openUserCard(m.author);
             const time = h('time', '', fmtTime(m.t));
             head.append(name, ...(m.author.plus ? [h('span', 'plus-badge', '✦ PLUS')] : []), time);
             body.append(head);
@@ -373,6 +385,74 @@ function closeModals() { document.querySelectorAll('.modal').forEach(m => m.clas
 document.querySelectorAll('[data-close]').forEach(b => b.onclick = closeModals);
 document.querySelectorAll('.modal').forEach(m => m.addEventListener('mousedown', (e) => { if (e.target === m) closeModals(); }));
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeModals(); $('server-menu').classList.add('hidden'); closeNav(); } });
+
+/* ---------- user profile card + mention lists ---------- */
+function findUserBy(ref) {
+    if (!ref) return null;
+    if (typeof ref === 'object') return ref.id != null ? ref : null;
+    const name = String(ref).replace(/^@/, '').toLowerCase();
+    const pool = [...(S.members || []), ...(S.friends || []), ...(S.dm ? [S.dm] : []), ...(S.requests.in || []), ...(S.requests.out || [])];
+    return pool.find(u => String(u.username || '').toLowerCase() === name || String(u.email || '').toLowerCase() === name) || null;
+}
+function openUserCard(u) {
+    u = typeof u === 'object' ? u : findUserBy(u);
+    if (!u || u.id == null) return;
+    const glow = !!(u.plus && (u.glow || u.accent));
+    const card = $('user-card');
+    card.classList.toggle('glow', glow);
+    if (glow) card.style.setProperty('--pg', u.glow || u.accent); else card.style.removeProperty('--pg');
+    $('uc-banner').style.background = u.plus && u.accent ? `linear-gradient(120deg, ${u.accent}66, transparent 70%)` : '';
+    const a = userAva(u, 'xl'), av = $('uc-ava');
+    av.className = a.className; av.style.cssText = a.style.cssText; av.textContent = a.textContent;
+    const nm = $('uc-name');
+    nm.textContent = u.username || u.email || 'Member';
+    nm.className = u.plus ? 'plus-name' : '';
+    nm.style.color = nameColour(u);
+    $('uc-handle').textContent = u.username ? `@${u.username}` : '';
+    const st = $('uc-status');
+    st.textContent = [u.statusText, SLABEL[u.status] || 'Offline'].filter(Boolean).join(' · ');
+    st.style.color = u.plus && u.accent ? ink(u.accent) : '';
+    $('uc-badge').classList.toggle('hidden', !u.plus);
+    $('uc-stats').textContent = `${fmtDur(u.voice || 0)} in voice · ${u.msgs || 0} messages`;
+    $('uc-bio').textContent = u.bio || 'No bio yet.';
+    const acts = $('uc-actions'); acts.textContent = '';
+    const friend = (S.friends || []).find(f => f.id === u.id);
+    if (friend) {
+        const b = h('button', 'btn primary', 'Message'); b.type = 'button';
+        b.onclick = () => { closeModals(); openDM(friend); };
+        acts.append(b);
+    } else if (!S.me || u.id !== S.me.id) {
+        const b = h('button', 'btn ghost', 'Add friend'); b.type = 'button';
+        b.onclick = async () => { if (await addFriend(u.username || u.email)) closeModals(); };
+        acts.append(b);
+    }
+    const cp = h('button', 'btn ghost', 'Copy username'); cp.type = 'button';
+    cp.onclick = () => copy(u.username ? '@' + u.username : String(u.email || ''));
+    acts.append(cp);
+    openModal('modal-user');
+}
+function openRoleCard(kind) {
+    if (!S.server) return;
+    const here = kind === 'here';
+    const list = (S.members || []).filter(m => here ? m.status !== 'offline' : true)
+        .sort((a, b) => String(a.username || '').localeCompare(String(b.username || ''), undefined, { sensitivity: 'base' }));
+    $('role-title').textContent = here ? '@here' : '@everyone';
+    $('role-sub').textContent = here
+        ? `${list.length} online right now in ${S.server.name}`
+        : `${list.length} member${list.length === 1 ? '' : 's'} in ${S.server.name}`;
+    const box = $('role-list'); box.textContent = '';
+    if (!list.length) box.append(h('div', 'side-empty', here ? 'Nobody is online right now.' : 'No members yet.'));
+    list.forEach(m => {
+        const r = h('div', 'role-row'), a = userAva(m, 'sm'); a.append(dot(m.status));
+        const nm = h('span', 'role-name' + (m.plus ? ' plus-name' : ''), m.username || 'Member');
+        nm.style.color = nameColour(m);
+        const right = h('small', 'role-right', SLABEL[m.status] || 'Offline');
+        r.append(a, nm, right);
+        r.onclick = () => openUserCard(m);
+        box.append(r);
+    });
+    openModal('modal-role');
+}
 
 $('server-create').onclick = () => openModal('modal-server');
 $('server-join-btn').onclick = () => openModal('modal-join');
@@ -539,45 +619,50 @@ $('server-menu').onclick = async (e) => {
 
 window.addEventListener('hashchange', () => { if (S.token && S.me) handleInvite(); });
 
-/* ---------- emoji picker (every Unicode emoji, drawn as images) ---------- */
+/* ---------- emoji picker (curated set, drawn as images) ---------- */
 const pop = $('emoji-pop');
-// Skin tones are generated from the base gestures/people instead of being stored one by one.
-const TONES = ['🏻', '🏼', '🏽', '🏾', '🏿'];
-const SKIN_BASE = '👋 🤚 🖐️ ✋ 🖖 🫱 🫲 🫳 🫴 🫵 🫷 🫸 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 🖕 👇 ☝️ 🫶 👍 👎 ✊ 👊 🤛 🤜 👏 🙌 👐 🤲 🤝 🙏 ✍️ 💅 🤳 💪 🦵 🦶 👂 👃 👶 🧒 👦 👧 🧑 👱 👨 🧔 👩 🧓 👴 👵 🙍 🙎 🙅 🙆 💁 🙋 🙇 🤦 🤷 🚶 🧍 🧎 🏃 💃 🕺 🧖 🧗 🏇 🏂 🏌️ 🏄 🚣 🏊 ⛹️ 🏋️ 🚴 🚵 🤸 🤼 🤽 🤾 🤹 🧘 🛀 🛌';
-const flag = (code) => String.fromCodePoint(...[...code].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
-const flagSet = new Set((window.FLAG_CODES || '').split(' ').filter(Boolean).map(flag));
-const flagsGroup = (window.EMOJI_GROUPS || []).find(g => g && g.n === 'Flags');
-if (flagsGroup) flagsGroup.e.split(' ').forEach(e => flagSet.add(e));
+// A hand-picked set of the emoji people actually use. The full Unicode table is mostly
+// glyphs that a lot of systems still cannot draw, which is what made the old picker unusable.
+const MAIN_EMOJI = [
+    { n: 'Smileys', icon: '😀', e: '😀 😃 😄 😁 😆 😅 🤣 😂 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😋 😛 😜 🤪 😝 🤑 🤗 🤭 🤫 🤔 🤐 🤨 😐 😑 😶 😏 😒 🙄 😬 😌 😔 😪 🤤 😴 😷 🤒 🤕 🤢 🤮 🤧 🥵 🥶 🥴 😵 🤯 🤠 🥳 🥸 😎 🤓 🧐 😕 😟 🙁 😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 🥱 😤 😡 😠 🤬 😈 👿 💀 💩 🤡 👹 👺 👻 👽 👾 🤖 😺 😸 😹 😻 😼 😽 🙀 😿 😾' },
+    { n: 'People', icon: '👋', e: '👋 🤚 🖐️ ✋ 🖖 👌 🤌 🤏 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ 👍 👎 ✊ 👊 🤛 🤜 👏 🙌 👐 🤲 🤝 🙏 ✍️ 💅 🤳 💪 🦵 🦶 👂 👃 👀 👶 🧒 👦 👧 🧑 👨 👩 🧓 👴 👵 🙍 🙎 🙅 🙆 💁 🙋 🙇 🤦 🤷 🚶 🏃 💃 🕺 🕴️ 👯 🧎 🧗 🏂 🏊 🚴 🤸 🤹 🧘 🫶 👫 👭 👬 💏 💑' },
+    { n: 'Nature', icon: '🐻', e: '🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🐔 🐧 🐦 🐤 🦆 🦅 🦉 🦄 🐝 🦋 🐌 🐞 🐢 🐍 🐙 🦑 🦀 🐟 🐬 🐳 🦈 🐊 🐘 🦒 🦓 🦌 🐑 🐐 🐕 🐈 🐓 🐲 🌵 🎄 🌲 🌴 🌱 🌿 ☘️ 🍀 🍁 🍂 🍃 🌸 🌼 🌻 🌹 🌷 🌺 💐 🌾 🌳' },
+    { n: 'Food', icon: '🍔', e: '🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🍆 🥑 🥦 🌽 🥕 🍞 🥐 🥨 🧀 🍖 🍗 🍔 🍟 🍕 🌭 🌮 🌯 🍜 🍣 🍤 🍦 🍩 🍪 🎂 🍰 🍫 🍬 🍿 ☕ 🍵 🍺 🍻 🥂 🍷 🍸 🥃 🧊' },
+    { n: 'Travel', icon: '✈️', e: '🚗 🚕 🚙 🚌 🚎 🏎️ 🚓 🚑 🚒 🚐 🚚 🚛 🚜 🛴 🚲 🛵 🏍️ ✈️ 🚀 🛸 🚁 ⛵ 🚤 🚢 🚂 🚄 🚅 🚉 🚆 🏠 🏡 🏢 🏥 🏦 🏨 🏰 🗼 🗽 🎡 🎢 🎠 ⛲ ⛱️ 🏖️ 🏝️ 🏔️ 🌋 🗻 🏕️ 🌍 🌎 🌏 🗺️ 🧭' },
+    { n: 'Activity', icon: '⚽', e: '⚽ 🏀 🏈 ⚾ 🥎 🎾 🏐 🏉 🥏 🎱 🏓 🏸 🥅 🏒 🏑 🥍 🏏 🥊 🥋 🎽 🛹 🛼 🥿 👟 🎿 ⛷️ 🏆 🥇 🥈 🥉 🎯 🎮 🕹️ 🎲 🧩 🎨 🎬 🎤 🎧 🎸 🎹 🥁 🎺 🎻 🎪 🎟️ 🎫 🎭 🩰' },
+    { n: 'Objects', icon: '💡', e: '⌚ 📱 💻 ⌨️ 🖥️ 🖨️ 🖱️ 💾 💿 📀 📷 📸 📹 🎥 📞 ☎️ 📟 📠 📺 📻 🎙️ ⏰ ⏳ 💡 🔦 🕯️ 🧯 🛢️ 💸 💵 💰 💳 🧾 💎 🔧 🔨 ⚙️ 🧲 🔫 🧪 🧬 🔬 🔭 💉 💊 🩹 🚪 🛏️ 🛋️ 🧸 🖼️ 🛍️ 🎁 🎈 🎉 🎊 ✉️ 📦 📚 📖 📝 ✏️ ✒️ 🔒 🔑 🧰 🪄 🪙 🔮 🧿' },
+    { n: 'Symbols', icon: '❤️', e: '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❤️‍🔥 💯 💢 💥 💫 💦 💨 💬 🗯️ 💭 💤 ⭐ 🌟 ✨ ⚡ 🔥 🌈 ☀️ 🌤️ ⛅ 🌧️ ⛈️ ❄️ ☃️ 💧 🌊 🎵 🎶 ✅ ❌ ❗ ❓ ⚠️ ♻️ 🔞 💲 ➕ ➖ ➗ 🆗 🆕 🆒 🆓 🔝 🔜 🏳️ 🏴 🏁 🚩' },
+    { n: 'Flags', icon: '🏳️', e: '🇺🇸 🇬🇧 🇨🇦 🇦🇺 🇩🇪 🇫🇷 🇪🇸 🇮🇹 🇯🇵 🇰🇷 🇨🇳 🇮🇳 🇧🇷 🇲🇽 🇳🇱 🇸🇪 🇸🇬 🇿🇦 🇦🇪 🇹🇷 🇷🇺 🇺🇦 🇵🇱 🇵🇹 🇮🇪 🇳🇿 🇦🇷 🇨🇱 🇨🇴 🇵🇭 🇮🇩 🇲🇾 🇹🇭 🇻🇳 🇸🇦 🇮🇱 🇪🇬 🇳🇬 🇰🇪' }
+];
 const RECENT_KEY = 'emoji-recent';
 let recents = [];
 try { recents = (JSON.parse(localStorage.getItem(RECENT_KEY)) || []).filter(e => typeof e === 'string' && e); } catch { recents = []; }
-const SHORT = { 'Smileys & emotion': 'Smileys', 'People & body': 'People', 'Animals & nature': 'Nature', 'Food & drink': 'Food', 'Travel & places': 'Travel', 'Activities': 'Activity', 'Objects': 'Objects', 'Symbols': 'Symbols', 'Flags': 'Flags' };
-const GICON = { 'Recent': '🕘', 'Smileys & emotion': '😀', 'People & body': '👋', 'Animals & nature': '🐻', 'Food & drink': '🍔', 'Travel & places': '✈️', 'Activities': '⚽', 'Objects': '💡', 'Symbols': '❤️', 'Flags': '🏳️' };
 const BASE_GROUPS = [
-    { n: 'Recent', icon: GICON.Recent, list: () => recents },
-    ...(window.EMOJI_GROUPS || []).map(g => ({
-        n: g.n, icon: GICON[g.n],
-        list: () => g.n === 'People & body'
-            ? [...new Set(g.e.split(' ').concat(SKIN_BASE.split(' ').flatMap(b => TONES.map(t => b + t))))]
-            : g.n === 'Flags' ? [...flagSet] : g.e.split(' ')
-    }))
+    { n: 'Recent', icon: '🕘', list: () => recents },
+    ...MAIN_EMOJI.map(g => ({ n: g.n, icon: g.icon, list: () => g.e.split(' ') }))
 ];
 let EMOJI_GROUPS = [...BASE_GROUPS];
-const customEmoji = new Map();
-let customStickers = [];
+let customEmoji = new Map();
 function rebuildEmojiGroups() {
-    customEmoji.clear();
-    customStickers = [];
-    const s = S.server;
-    if (s) {
-        (s.emoji || []).forEach(e => { if (e && e.n && e.u) customEmoji.set(e.n, e.u); });
-        customStickers = (s.stickers || []).filter(e => e && e.n && e.u);
-    }
+    const sources = [];
+    if (S.server) sources.push(S.server);
+    if (S.me && S.me.plus) (S.servers || []).forEach(s => { if (!S.server || s.id !== S.server.id) sources.push(s); });
+    const emoji = [], stickers = [];
+    customEmoji = new Map();
+    sources.forEach(s => {
+        (s.emoji || []).forEach(e => {
+            if (!e || !e.n || !e.u) return;
+            if (!customEmoji.has(e.n)) customEmoji.set(e.n, e.u);
+            emoji.push({ n: e.n, u: e.u, k: 'emoji', s: s.name });
+        });
+        (s.stickers || []).forEach(e => { if (e && e.n && e.u) stickers.push({ n: e.n, u: e.u, k: 'sticker', s: s.name }); });
+    });
     EMOJI_GROUPS = [
         ...BASE_GROUPS,
-        ...(customEmoji.size ? [{ n: 'Server', icon: '🖼️', kind: 'custom', list: () => [...customEmoji.keys()] }] : []),
-        ...(customStickers.length ? [{ n: 'Stickers', icon: '🏷️', kind: 'sticker', list: () => customStickers.map(x => x.n) }] : [])
+        ...(emoji.length ? [{ n: sources.length > 1 ? 'Emoji' : 'Server', icon: '🖼️', kind: 'files', list: () => emoji }] : []),
+        ...(stickers.length ? [{ n: 'Stickers', icon: '🏷️', kind: 'files', list: () => stickers }] : [])
     ];
+    searchAll = null;
 }
 const head = h('div', 'emoji-head');
 const countEl = h('span', 'emoji-count', '');
@@ -599,9 +684,16 @@ function groupList(i) {
 }
 function allEmoji() {
     if (searchAll) return searchAll;
-    const seen = new Set();
-    EMOJI_GROUPS.forEach((g, i) => { if (g.n !== 'Recent') groupList(i).forEach(e => seen.add(e)); });
-    return (searchAll = [...seen]);
+    const seen = new Set(), out = [];
+    EMOJI_GROUPS.forEach((g, i) => {
+        if (g.n === 'Recent') return;
+        groupList(i).forEach(e => {
+            const key = typeof e === 'string' ? e : `${e.k}:${e.n}:${e.u}`;
+            if (seen.has(key)) return;
+            seen.add(key); out.push(e);
+        });
+    });
+    return (searchAll = out);
 }
 function addRecent(e) {
     recents = [e, ...recents.filter(x => x !== e)].slice(0, 24);
@@ -620,23 +712,25 @@ function sendSticker(u) {
     const form = $('chat-form');
     if (typeof form.requestSubmit === 'function') form.requestSubmit(); else form.dispatchEvent(new Event('submit', { cancelable: true }));
 }
+function activateEmoji(e) {
+    if (e && typeof e === 'object') {
+        if (e.k === 'sticker') sendSticker(e.u);
+        else insertText(`:${e.n}: `);
+        return;
+    }
+    insertEmoji(e);
+}
 function emojiCell(e) {
-    const g = EMOJI_GROUPS[activeEmoji];
     const b = h('button', 'emoji-cell');
     b.type = 'button'; b.tabIndex = -1;
-    if (g && g.kind === 'custom') {
-        b.classList.add('cust'); b.title = `:${e}:`; b.setAttribute('aria-label', e);
-        const img = h('img'); img.src = customEmoji.get(e); img.alt = e; img.loading = 'lazy';
+    if (e && typeof e === 'object') {
+        b.classList.add('cust');
+        const where = e.s ? ` · ${e.s}` : '';
+        b.setAttribute('aria-label', e.n);
+        const img = h('img'); img.src = e.u; img.alt = e.n; img.loading = 'lazy';
         b.append(img);
-        b.onclick = () => insertText(`:${e}: `);
-        return b;
-    }
-    if (g && g.kind === 'sticker') {
-        const st = customStickers.find(x => x.n === e);
-        b.classList.add('cust'); b.title = `${e} — send sticker`; b.setAttribute('aria-label', e);
-        const img = h('img'); img.src = st ? st.u : ''; img.alt = e; img.loading = 'lazy';
-        b.append(img);
-        b.onclick = () => { if (st) sendSticker(st.u); };
+        b.title = e.k === 'sticker' ? `${e.n} — sticker${where}` : `:${e.n}:${where}`;
+        b.onclick = () => activateEmoji(e);
         return b;
     }
     const name = emojiArt.nameOf(e);
@@ -650,7 +744,8 @@ function paintBody() {
     body.textContent = '';
     const q = emojiQuery;
     const list = q ? searchResults : groupList(activeEmoji);
-    const title = q ? `Results for “${emojiQuery}”` : activeEmoji === 0 ? 'Recently used' : SHORT[EMOJI_GROUPS[activeEmoji].n] || EMOJI_GROUPS[activeEmoji].n;
+    const g = EMOJI_GROUPS[activeEmoji];
+    const title = q ? `Results for “${emojiQuery}”` : activeEmoji === 0 ? 'Recently used' : g ? g.n : '';
     countEl.textContent = list.length ? String(list.length) : '';
     const sec = h('div', 'emoji-sec');
     sec.append(h('span', '', title), h('small', '', list.length ? `${list.length}` : ''));
@@ -671,7 +766,10 @@ function paintEmoji(i) {
 function runSearch() {
     const q = searchEl.value.trim().toLowerCase();
     emojiQuery = q;
-    searchResults = q ? allEmoji().filter(e => emojiArt.words(e).includes(q)).slice(0, 500) : [];
+    searchResults = q ? allEmoji().filter(e => typeof e === 'string'
+        ? emojiArt.words(e).includes(q) || e === q
+        : e.n.toLowerCase().includes(q) || String(e.s || '').toLowerCase().includes(q)
+    ).slice(0, 200) : [];
     if (!q) {
         [...tabs.children].forEach((t, x) => t.classList.toggle('on', x === activeEmoji));
     } else {
@@ -682,7 +780,7 @@ function runSearch() {
 }
 searchEl.addEventListener('input', runSearch);
 searchEl.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && emojiQuery && searchResults[0]) { e.preventDefault(); insertEmoji(searchResults[0]); }
+    if (e.key === 'Enter' && emojiQuery && searchResults[0]) { e.preventDefault(); activateEmoji(searchResults[0]); }
     if (e.key === 'Escape') { e.stopPropagation(); if (searchEl.value) { searchEl.value = ''; runSearch(); } else { pop.classList.add('hidden'); } }
 });
 function rebuildEmojiTabs() {
@@ -1011,9 +1109,9 @@ function paintBoosts() {
         else if (owner) {
             const btn = h('button', 'btn ghost sm', active ? 'Disable' : 'Enable');
             btn.type = 'button';
-            btn.onclick = () => setPerk(p, !active, p.k === 'accent' ? (d.accent || ACCENTS[0]) : '');
+            btn.onclick = () => setPerk(p, !active, p.k === 'accent' ? (d.accent || ACCENTS[0]) : '', p.k === 'accent' ? (d.font || '') : '');
             side.append(btn);
-            if (p.k === 'accent') side.append(accentPicker(d.accent, active, (c) => setPerk(p, true, c)));
+            if (p.k === 'accent') side.append(accentPicker(d.accent, active, (c, f) => setPerk(p, true, c, f), d.font));
         } else side.append(h('span', active ? 'perk-on' : 'perk-off', active ? 'Enabled' : 'Available'));
         row.append(info, side);
         box.append(row);
@@ -1147,18 +1245,41 @@ function assetSection(title, list, kind, owner, d) {
     return wrap;
 }
 
-function accentPicker(current, active, pick) {
+function accentPicker(current, active, pick, font) {
+    const wrap = h('div', 'accent-tools');
     const box = h('div', 'accent-pick mini');
     ACCENTS.forEach(c => {
         const b = h('button', 'accent-swatch' + (active && current === c ? ' on' : ''));
         b.type = 'button'; b.title = c; b.style.background = c;
-        b.onclick = () => pick(c);
+        b.onclick = () => pick(c, font || '');
         box.append(b);
     });
-    return box;
+    const custom = h('label', 'colour-btn');
+    custom.title = 'Pick any hex colour';
+    custom.innerHTML = '<svg viewBox="0 0 24 24" class="ic"><path d="m2 22 1-1h3l9-9M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 0 1 3 3L18 9l.4.4a1 1 0 0 1 0 1.4l-1.8 1.8a1 1 0 0 1-1.4 0L9 6.4a1 1 0 0 1 0-1.4L10.8 3a1 1 0 0 1 1.4 0z"/></svg>';
+    const inp = h('input');
+    inp.type = 'color'; inp.className = 'colour-input mini';
+    inp.value = /^#[0-9a-f]{6}$/i.test(current || '') ? current : '#5865f2';
+    inp.oninput = () => pick(inp.value.toLowerCase(), font || '');
+    custom.append(inp);
+    box.append(custom);
+    const hex = h('input', 'hexinput');
+    hex.type = 'text'; hex.placeholder = '#5865f2'; hex.maxLength = 7; hex.autocomplete = 'off'; hex.spellcheck = false;
+    hex.value = /^#[0-9a-f]{6}$/i.test(current || '') ? current : '';
+    hex.onchange = () => { const v = hex.value.trim().toLowerCase(); if (/^#[0-9a-f]{6}$/.test(v)) pick(v, font || ''); else hex.value = /^#[0-9a-f]{6}$/i.test(current || '') ? current : ''; };
+    wrap.append(box, hex);
+    const fonts = h('div', 'font-pick');
+    [['', 'Default'], ['rounded', 'Rounded'], ['serif', 'Serif'], ['mono', 'Mono'], ['wide', 'Wide']].forEach(([k, label]) => {
+        const b = h('button', 'font-opt' + ((font || '') === k ? ' on' : ''), label);
+        b.type = 'button'; b.style.fontFamily = fontOf(k);
+        b.onclick = () => pick(current || ACCENTS[0], k);
+        fonts.append(b);
+    });
+    wrap.append(h('small', 'font-label', 'Name font'), fonts);
+    return wrap;
 }
-async function setPerk(p, on, colour) {
-    const out = await post({ action: 'server-perk', id: S.server.id, perk: p.k, on, colour: on ? (colour || '') : '' });
+async function setPerk(p, on, colour, font) {
+    const out = await post({ action: 'server-perk', id: S.server.id, perk: p.k, on, colour: on ? (colour || '') : '', font: on ? (font || '') : '' });
     if (!out.res.ok) { $('boost-msg').style.color = ''; $('boost-msg').textContent = out.data.error || 'Could not update the perk.'; return; }
     $('boost-msg').textContent = '';
     Object.assign(S.server, out.data.server);

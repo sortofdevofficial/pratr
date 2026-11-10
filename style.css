@@ -583,3 +583,135 @@ input.colour-input:disabled { cursor: not-allowed; }
 .dm-item.has-unread { background: rgba(255, 90, 78, .1); }
 .dm-item.has-unread span.unread { color: #ff8177; font-weight: 800; }
 .rx-pop { width: 254px; }
+
+/* ============================================================
+   v6: Discord-style surfaces, curated pickers, profile cards
+   ============================================================ */
+
+/* ---- flat Discord palette: greys + blurple, no neon gradients ---- */
+:root {
+  --navy: #1e1f22; --bone: #f2f3f5; --coral: #5865f2;
+  --bg0: #1e1f22; --bg1: #2b2d31; --bg2: #2b2d31; --bg3: #313338; --bg4: #3f4147;
+  --line: #232428; --txt: #f2f3f5; --mut: #b5bac1; --dim: #949ba4;
+  --acc: var(--coral); --ok: var(--bone); --danger: #f23f43;
+  --glow: 0 1px 0 rgba(0, 0, 0, .2), 0 8px 24px rgba(0, 0, 0, .3);
+}
+body { background: #313338; }
+.rail { background: #1e1f22; }
+.rail::after { display: none; }
+.side, .side-head { background: #2b2d31; }
+.main, .topbar { background: #313338; }
+.topbar { box-shadow: 0 1px 0 rgba(0, 0, 0, .25); }
+.rail-btn { background: #313338; box-shadow: none; }
+.rail-btn:hover { background: #5865f2; transform: none; }
+.rail-btn.active, .rail-btn.home.active { background: #5865f2; box-shadow: none; }
+.rail-btn.action { background: #313338; border-color: #4e5058; color: #b5bac1; }
+.rail-btn.action:hover { background: #5865f2; border-color: #5865f2; color: #fff; }
+#side-title { background: none; -webkit-text-fill-color: currentColor; color: var(--txt); }
+.nav-item.active, .dm-item.active, .ch-item.active { background: #404249; }
+.btn.primary { background: #5865f2; box-shadow: none; }
+.btn.primary:hover { background: #4752c4; filter: none; transform: none; }
+.btn.ghost { background: #4e5058; color: #fff; }
+.btn.ghost:hover { background: #5d6069; }
+.icon-btn:hover { background: #404249; }
+.icon-btn.accent { background: rgba(88, 101, 242, .16); color: #c9cdfb; }
+.icon-btn.accent:hover { background: #5865f2; color: #fff; }
+input, textarea, select { background: #1e1f22; border-color: #1e1f22; }
+input:focus, textarea:focus, select:focus { border-color: #5865f2; box-shadow: none; }
+.composer { background: #383a40; border-color: #383a40; }
+.composer:focus-within { border-color: #5865f2; box-shadow: none; }
+.menu, .modal-card, .emoji-pop, .mention-pop, .toast { background: #2b2d31; border-color: #1e1f22; }
+.modal-card { box-shadow: 0 24px 60px rgba(0, 0, 0, .55); }
+.modal-x:hover { background: #404249; }
+.friend-card:hover, .disc-card:hover { border-color: #4e5058; }
+.dot.dnd { background: #f23f43; }
+.ping-badge { background: #f23f43; }
+#loadbar i { background: #5865f2; }
+
+/* ---- mentions, links and replies in Discord colours ---- */
+.mention { background: rgba(88, 101, 242, .3); color: #c9cdfb; }
+.mention.me { background: rgba(88, 101, 242, .55); color: #fff; }
+.msg.mentioned { background: rgba(88, 101, 242, .08); box-shadow: inset 3px 0 0 #5865f2; }
+.mention.all { background: rgba(240, 178, 50, .18); color: #f0b232; }
+.msg.mentioned:has(.mention.all) { box-shadow: inset 3px 0 0 #f0b232; }
+.mlink { color: #00a8fc; }
+.mlink.int { color: #c9cdfb; }
+.reply-bar, .reply-quote { border-left-color: #5865f2; }
+.rb-arrow, .fwd-hash { color: #c9cdfb; }
+.embed { border-left-color: #5865f2; }
+@keyframes msgFlash { 0%, 100% { background: transparent; } 20% { background: rgba(88, 101, 242, .16); } }
+.dm-item.has-unread { background: rgba(88, 101, 242, .12); }
+.dm-item.has-unread span.unread { color: #c9cdfb; font-weight: 800; }
+.badge { background: rgba(88, 101, 242, .18); color: #c9cdfb; }
+
+/* ---- overclock page without neon ---- */
+.oc-title { background: none; -webkit-background-clip: initial; background-clip: initial; color: var(--txt); }
+.boost-stats b { background: none; color: var(--txt); -webkit-text-fill-color: currentColor; }
+.oc-meter { background: #1e1f22; }
+.oc-meter i { background: #5865f2; box-shadow: none; }
+#oc-page .boost-actions .btn.primary, #oc-page .boost-actions .btn.primary:hover:not(:disabled) { background: #5865f2; filter: none; }
+#srv-boosts, .srv-boosts { color: #c9cdfb; background: rgba(88, 101, 242, .16); border-color: rgba(88, 101, 242, .4); }
+#srv-boosts:hover, .srv-boosts:hover { background: rgba(88, 101, 242, .3); }
+.oc-star { color: #949ba4; flex: 0 0 auto; }
+.oc-count { color: #c9cdfb; background: rgba(88, 101, 242, .16); flex: none; }
+.badge.boost, .rail-boost { background: #5865f2; color: #fff; }
+.rail-boost { border-color: #1e1f22; }
+.perk-row.on { border-color: rgba(88, 101, 242, .5); background: rgba(88, 101, 242, .08); }
+.perk-tier { color: #c9cdfb; background: rgba(88, 101, 242, .16); }
+
+/* ---- sidebar: overclock row keeps its label readable ---- */
+.oc-item { gap: 8px; }
+.oc-item > span:not(.oc-star) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oc-item .oc-star { width: 16px; flex: 0 0 auto; text-align: center; overflow: visible; }
+.oc-item .oc-count { margin-left: auto; }
+
+/* ---- server name stays readable over banners and accents ---- */
+.topbar.has-banner { box-shadow: inset 0 0 0 300px rgba(0, 0, 0, .38); }
+.side-head.has-banner { box-shadow: inset 0 0 0 300px rgba(0, 0, 0, .42); }
+#side-title, #chat-name, .topbar h1 { text-shadow: 0 1px 3px rgba(0, 0, 0, .8); }
+
+/* ---- Plus name style ---- */
+.plus-name { font-weight: 800; letter-spacing: .01em; text-shadow: 0 0 12px currentColor; }
+
+/* ---- profile glow: whole card, and the DM side panel ---- */
+.user-card { max-width: 380px; padding: 0 0 20px; overflow: hidden; }
+.uc-banner { height: 92px; background: linear-gradient(135deg, #5865f2, #4752c4); }
+.uc-top { display: flex; align-items: flex-end; gap: 14px; padding: 0 18px; margin-top: -38px; }
+.uc-top .ava.xl { width: 84px; height: 84px; font-size: 30px; border: 6px solid #2b2d31; }
+.uc-id { display: flex; flex-direction: column; min-width: 0; padding-bottom: 6px; }
+.uc-id strong { font-size: 20px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uc-handle { color: var(--mut); font-size: 13px; }
+.uc-status { color: var(--mut); font-size: 12.5px; }
+.uc-meta { display: flex; align-items: center; gap: 8px; padding: 12px 18px 0; }
+.uc-stat { color: var(--dim); font-size: 12px; }
+.uc-bio { margin: 12px 18px 0; color: var(--txt); font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.uc-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 16px 18px 0; }
+.uc-actions .btn { flex: 1; white-space: nowrap; }
+.user-card.glow { border-color: var(--pg, #5865f2); animation: cardGlow 3.2s ease-in-out infinite; }
+.dmcard.glow { border-left-color: var(--pg, #5865f2); animation: sideGlow 3.2s ease-in-out infinite; }
+@keyframes sideGlow {
+  0%, 100% { box-shadow: inset 3px 0 0 var(--pg, #5865f2), -12px 0 26px -18px var(--pg, #5865f2); }
+  50%      { box-shadow: inset 3px 0 0 var(--pg, #5865f2), -18px 0 46px -12px var(--pg, #5865f2); }
+}
+.mem, .friend-card, .dmcard, .msg .gutter .ava { cursor: pointer; }
+
+/* ---- @here / @everyone member list ---- */
+.role-list { display: flex; flex-direction: column; gap: 2px; max-height: 56vh; overflow-y: auto; margin-top: 8px; }
+.role-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
+.role-row:hover { background: #404249; }
+.role-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 14px; }
+.role-right { color: var(--dim); font-size: 11.5px; }
+
+/* ---- accent colour: hex picker + server name font ---- */
+.accent-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.accent-tools .accent-pick { flex: 0 0 auto; }
+.colour-btn { position: relative; width: 26px; height: 26px; flex: none; border-radius: 50%; display: grid; place-items: center; cursor: pointer; overflow: hidden;
+  background: conic-gradient(#f23f43, #f0b232, #3ba55d, #00a8fc, #5865f2, #eb459e, #f23f43); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, .3); }
+.colour-btn .ic { width: 14px; height: 14px; color: #fff; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .6)); pointer-events: none; }
+.colour-btn input.colour-input.mini { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; padding: 0; border: 0; cursor: pointer; }
+.hexinput { width: 96px; height: 32px; padding: 0 8px; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12.5px; border-radius: 8px; text-transform: lowercase; }
+.font-label { flex-basis: 100%; color: var(--dim); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.font-pick { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; }
+.font-opt { padding: 5px 11px; border-radius: 8px; background: #1e1f22; border: 1px solid var(--line); color: var(--mut); font-size: 12.5px; transition: .12s; }
+.font-opt:hover { border-color: #4e5058; color: var(--txt); }
+.font-opt.on { background: #5865f2; border-color: #5865f2; color: #fff; }

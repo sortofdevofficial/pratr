@@ -1,5 +1,5 @@
 // The handler lives here; models, helpers and connection setup live in ../lib/core.js.
-const { mongoose, bcrypt, jwt, crypto, nowSeconds, onlineCut, statusOf, stOf, clientIp, geoOf, deviceOf, clientInfo, infoText, hit, DUMMY_HASH, CURRENT_SCHEMA_VERSION, ensureSchemaVersion, withV, connectDB, User, Pending, Session, Msg, Server, Channel, Voice, VStat, Signal, Log, Read, Meta, Friend, Invite, Boost, lg, VOICE_LIVE, vLive, endVoice, reapMyVoice, reapVoice, readKey, voiceRoom, shortCode, findInvite, sendOtp, nextId, createWithId, isAdmin, areFriends, isMember, srv, okImg, MONTH, plusOn, BOOST_PERKS, boostTier } = require('../lib/core');
+const { mongoose, bcrypt, jwt, crypto, nowSeconds, onlineCut, statusOf, stOf, clientIp, geoOf, deviceOf, clientInfo, infoText, hit, DUMMY_HASH, CURRENT_SCHEMA_VERSION, ensureSchemaVersion, withV, connectDB, User, Pending, Session, Msg, Server, Channel, Voice, VStat, Signal, Log, Read, Meta, Friend, Invite, Boost, lg, VOICE_LIVE, vLive, endVoice, reapMyVoice, reapVoice, readKey, voiceRoom, shortCode, findInvite, sendOtp, nextId, createWithId, isAdmin, areFriends, isMember, srv, okImg, MONTH, plusOn, BOOST_PERKS, boostTier, SERVER_FONTS } = require('../lib/core');
 const ACCENTS = ['#ffd36b', '#ff8fa3', '#7ee2b8', '#7cc4ff', '#b99bff', '#ffab6b', '#5ee0d6', '#f0e9db', '#ff5a4e', '#f472d0', '#8ef58a', '#6ea8ff', '#ffe45e', '#c6a4ff', '#ff9f43', '#9be7ff'];
 // Colours are free-form hex, so people can glow in any shade they like. Values are stored in one canonical lowercase form.
 const isColour = (c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c);
@@ -44,7 +44,7 @@ module.exports = async function handler(req, res) {
     if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16) return res.status(500).json({ error: 'Server is not configured.' });
     await connectDB();
     const tooMany = () => res.status(429).json({ error: 'Too many attempts. Please wait a bit and try again.' });
-    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q, status, ck, to, sig, mu, df, on, npw, lastId, afterId, st, ac, days, count, perk, colour, sx, pg, field, replyId } = body;
+    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q, status, ck, to, sig, mu, df, on, npw, lastId, afterId, st, ac, days, count, perk, colour, font, sx, pg, field, replyId } = body;
 
     if (action === 'register') {
       const key = String(email || '').trim().toLowerCase();
@@ -679,7 +679,7 @@ module.exports = async function handler(req, res) {
       const sid = Number(id);
       if (!(await isMember(sid, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
       const [server, me, rows, grants] = await Promise.all([
-        Server.findById(sid).select('o n bc bp sc bn lg em sk').lean(),
+        Server.findById(sid).select('o n bc bp sc sf bn lg em sk').lean(),
         User.findById(auth.userId).select('ub pl pe ng').lean(),
         Boost.aggregate([{ $match: { s: sid } }, { $group: { _id: '$u', n: { $sum: { $ifNull: ['$n', 1] } }, t: { $max: '$t' } } }, { $sort: { t: -1 } }, { $limit: 30 }]),
         Log.find({ a: auth.userId, ty: 'boost_grant' }).sort({ _id: -1 }).limit(20).lean()
@@ -689,7 +689,7 @@ module.exports = async function handler(req, res) {
       const nm = Object.fromEntries(boosters.map(u => [u._id, u.n]));
       const plus = plusOn(me);
       return res.status(200).json({
-        server: server.n, owner: server.o, boosts: server.bc || 0, tier: boostTier(server.bc), perks: server.bp || [], accent: server.sc || '',
+        server: server.n, owner: server.o, boosts: server.bc || 0, tier: boostTier(server.bc), perks: server.bp || [], accent: server.sc || '', font: server.sf || '',
         banner: server.bn || '', logo: server.lg || '', emoji: server.em || [], stickers: server.sk || [],
         available: BOOST_PERKS, mine: me.ub || 0, plus, nextBoosts: plus ? (me.ng || 0) : 0,
         history: rows.map(r => ({ t: r.t, by: nm[r._id] || 'someone', n: r.n })),
@@ -716,8 +716,8 @@ module.exports = async function handler(req, res) {
         const sum = (burst ? burst.d || 0 : 0) + amount;
         if (burst) await Log.updateOne({ _id: burst._id }, { $set: { t: nowSeconds(), d: sum, x: `+${sum} overclock${sum === 1 ? '' : 's'}` } });
         else await lg(sid, 'server_boost', auth.userId, { d: amount, x: `+${amount} overclock${amount === 1 ? '' : 's'}` });
-        const fresh = await Server.findById(sid).select('bc bp sc bn lg em sk').lean();
-        return res.status(200).json({ ok: true, boosts: total, tier: boostTier(total), left: spent.ub, unlocked: BOOST_PERKS.filter(p => total >= p.at).map(p => p.k), perks: fresh.bp || [], accent: fresh.sc || '', banner: fresh.bn || '', logo: fresh.lg || '', emoji: fresh.em || [], stickers: fresh.sk || [] });
+        const fresh = await Server.findById(sid).select('bc bp sc sf bn lg em sk').lean();
+        return res.status(200).json({ ok: true, boosts: total, tier: boostTier(total), left: spent.ub, unlocked: BOOST_PERKS.filter(p => total >= p.at).map(p => p.k), perks: fresh.bp || [], accent: fresh.sc || '', font: fresh.sf || '', banner: fresh.bn || '', logo: fresh.lg || '', emoji: fresh.em || [], stickers: fresh.sk || [] });
       } catch (e) {
         await User.updateOne({ _id: auth.userId }, { $inc: { ub: amount } }); // never charge for an overclock that was not stored
         throw e;
@@ -735,8 +735,9 @@ module.exports = async function handler(req, res) {
       if (def.k === 'accent') {
         const col = cleanColour(colour) || (ACCENTS.includes(colour) ? colour : '');
         if (yes && !col) return res.status(400).json({ error: 'Pick an accent colour.' });
-        update.$set = { sc: yes ? col : '' };
+        update.$set = { sc: yes ? col : '', sf: yes && SERVER_FONTS.includes(String(font || '')) ? String(font || '') : '' };
       }
+      if (!yes && (def.k === 'banner' || def.k === 'logo')) update.$set = def.k === 'banner' ? { bn: '' } : { lg: '' }; // locked art must not keep showing
       await Server.updateOne({ _id: server._id }, update);
       await lg(server._id, 'server_perk', auth.userId, { x: `${def.k} ${yes ? 'enabled' : 'disabled'}${def.k === 'accent' && yes ? ` (${update.$set.sc})` : ''}` });
       const fresh = await Server.findById(server._id).lean();
