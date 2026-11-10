@@ -302,7 +302,7 @@ async function loadDiscover() {
         };
         const name = h('strong', '', s.name);
         if (s.accent) name.style.color = s.accent;
-        if (s.boosts) { const star = h('em', 'badge boost', `✦ ${s.boosts}`); star.title = `${s.boosts} flares · ${s.tier || 0} perk tiers`; name.append(' ', star); }
+        if (s.boosts) { const star = h('em', 'badge boost', `✦ ${s.boosts}`); star.title = `${s.boosts} overclocks · ${s.tier || 0} perk tiers`; name.append(' ', star); }
         b.append(name, h('p', '', s.desc || 'No description yet.'), statEl(s.online || 0, s.count), btn);
         c.append(h('div', 'disc-top'), avatar(s.name, 'xl', s.logo || s.icon), b);
         grid.append(c);
@@ -689,8 +689,8 @@ async function loadPlusHistory() {
     const out = await post({ action: 'boost-history' });
     box.textContent = '';
     if (!out.res.ok) return void box.append(h('div', 'side-empty', out.data.error || 'Could not load history.'));
-    if (!out.data.history.length) return void box.append(h('div', 'side-empty', 'Nothing yet. Plan and flare events are saved here forever.'));
-    const LABEL = { plus_grant: 'Plus plan', plus_expire: 'Plan ended', boost_grant: 'Flares', server_boost: 'Server flare' };
+    if (!out.data.history.length) return void box.append(h('div', 'side-empty', 'Nothing yet. Plan and overclock events are saved here forever.'));
+    const LABEL = { plus_grant: 'Plus plan', plus_expire: 'Plan ended', boost_grant: 'Overclocks', server_boost: 'Server overclock' };
     out.data.history.forEach(l => {
         const r = h('div', 'logrow');
         r.append(h('time', '', stamp(l.t)), h('span', '', `${LABEL[l.ty] || l.ty} — ${l.x || ''}${l.server ? ` · ${l.server}` : ''}`));
@@ -698,22 +698,22 @@ async function loadPlusHistory() {
     });
 }
 function openPlus() {
-    const me = S.me || {}, has = !!me.plus, flares = me.boosts || 0;
+    const me = S.me || {}, has = !!me.plus, overclocks = me.boosts || 0;
     const plan = $('plus-plan');
     plan.textContent = '';
     const line = (k, v) => { const r = h('div', 'plan-row'); r.append(h('span', '', k), h('b', '', v)); plan.append(r); };
     line('Plan', '1 month · $1');
     if (has) {
         if (me.plusUntil) line('Active until', plusDate(me.plusUntil));
-        line('Flares available', String(flares));
-        if (me.nextBoosts) line('Next +2 flares', plusDate(me.nextBoosts));
+        line('Overclocks available', String(overclocks));
+        if (me.nextBoosts) line('Next +2 overclocks', plusDate(me.nextBoosts));
     } else {
         if (me.plusUntil) line('Ended on', plusDate(me.plusUntil));
-        line('Flares kept', String(flares));
+        line('Overclocks kept', String(overclocks));
     }
     $('plus-state').textContent = has
-        ? 'Your perks are active. Renewing adds another month and keeps every flare you already own.'
-        : me.plusUntil ? 'Your plan has ended, so Plus perks are paused. Your flares, history and saved customisations are still here and come back when you renew.' : '';
+        ? 'Your perks are active. Renewing adds another month and keeps every overclock you already own.'
+        : me.plusUntil ? 'Your plan has ended, so Plus perks are paused. Your overclocks, history and saved customisations are still here and come back when you renew.' : '';
     $('plus-buy').classList.toggle('hidden', has);
     $('plus-customize').classList.toggle('hidden', !has);
     $('plus-admin').classList.toggle('hidden', !(S.me && S.me.admin));
@@ -743,8 +743,8 @@ async function plusGrant(on) {
     const out = await post({ action: 'plus-grant', username: u, on, days });
     if (!out.res.ok) { $('plus-msg').style.color = ''; $('plus-msg').textContent = out.data.error || 'Failed.'; return; }
     const msg = out.data.plus
-        ? `${out.data.username}: Plus active until ${plusDate(out.data.until)} · ${out.data.boosts} flares${out.data.granted ? ` (+${out.data.granted} this month)` : ''}.`
-        : `${out.data.username}: Plus removed. Their ${out.data.boosts || 0} flares are kept.`;
+        ? `${out.data.username}: Plus active until ${plusDate(out.data.until)} · ${out.data.boosts} overclocks${out.data.granted ? ` (+${out.data.granted} this month)` : ''}.`
+        : `${out.data.username}: Plus removed. Their ${out.data.boosts || 0} overclocks are kept.`;
     if (S.me && (u === S.me.username || (S.me.email && u.toLowerCase() === S.me.email.toLowerCase()))) {
         await refreshMe(); openPlus(); // openPlus clears the message box, so fill it afterwards
     }
@@ -757,7 +757,7 @@ $('plus-act').onclick = async () => {
     const out = await post({ action: 'activity', username: u });
     box.classList.remove('hidden'); box.textContent = '';
     if (!out.res.ok) return void box.append(h('div', 'side-empty', out.data.error || 'Failed.'));
-    box.append(h('div', 'side-empty', `${out.data.username}: ${fmtDur(out.data.voice)} in voice, ${out.data.msgs} messages · ${out.data.boosts || 0} flares${out.data.plus ? ` · Plus until ${plusDate(out.data.plusUntil)}` : ''}`));
+    box.append(h('div', 'side-empty', `${out.data.username}: ${fmtDur(out.data.voice)} in voice, ${out.data.msgs} messages · ${out.data.boosts || 0} overclocks${out.data.plus ? ` · Plus until ${plusDate(out.data.plusUntil)}` : ''}`));
     out.data.logs.forEach(l => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(l.t)), h('span', '', logText(l))); box.append(r); });
 };
 $('plus-on').onclick = () => plusGrant(true);
@@ -774,7 +774,7 @@ async function flareGrant(sign) {
     if (mine) await refreshMe();
     $('plus-msg').style.color = 'var(--bone)';
     const applied = Number(out.data.delta) || 0;
-    $('plus-msg').textContent = `${out.data.username} now has ${out.data.boosts} flares (${applied > 0 ? '+' : ''}${applied}).`;
+    $('plus-msg').textContent = `${out.data.username} now has ${out.data.boosts} overclocks (${applied > 0 ? '+' : ''}${applied}).`;
 }
 $('flare-give').onclick = () => flareGrant(1);
 $('flare-take').onclick = () => flareGrant(-1);

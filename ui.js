@@ -15,9 +15,9 @@ function renderRail() {
         const b = h('button', 'rail-btn' + (S.server && S.server.id === s.id ? ' active' : ''), art ? '' : ini(s.name));
         if (art) b.style.background = bg(art);
         if (s.accent) b.style.boxShadow = `inset 0 0 0 2px ${s.accent}`;
-        if (s.boosts) { const star = h('i', 'rail-boost', '✦'); star.title = `${s.boosts} flares`; b.append(star); }
-        b.title = s.name + (s.boosts ? ` · ${s.boosts} flares` : '');
-        b._ctx = () => [...(s.owner === S.me?.id ? [['Server settings', () => openServer(s.id).then(openServerSettings)]] : []), ['Flares & perks', () => { openServer(s.id).then(openBoosts); }], ['Copy server link', () => copy(location.origin + '/channels/' + s.id)], ['Copy server name', () => copy(s.name)], ...idItem('server', s.id)];
+        if (s.boosts) { const star = h('i', 'rail-boost', '✦'); star.title = `${s.boosts} overclocks`; b.append(star); }
+        b.title = s.name + (s.boosts ? ` · ${s.boosts} overclocks` : '');
+        b._ctx = () => [...(s.owner === S.me?.id ? [['Server settings', () => openServer(s.id).then(openServerSettings)]] : []), ['Server overclock', () => { openServer(s.id).then(openBoosts); }], ['Copy server link', () => copy(location.origin + '/channels/' + s.id)], ['Copy server name', () => copy(s.name)], ...idItem('server', s.id)];
         b.onclick = () => openServer(s.id);
         box.append(b);
     });
@@ -38,10 +38,10 @@ function renderSide() {
     sh.classList.toggle('has-banner', !!(server && S.server.banner));
     sh.style.backgroundImage = server && S.server.banner ? `linear-gradient(180deg, rgba(6,12,25,.2), rgba(6,12,25,.78)), url("${S.server.banner}")` : '';
     const chip = $('srv-boosts');
-    chip.classList.toggle('hidden', !server || !(S.server.boosts > 0));
-    if (server && S.server.boosts > 0) {
-        chip.textContent = `✦ ${S.server.boosts}`;
-        chip.title = `${S.server.boosts} flares · ${S.server.tier || 0} perk tiers`;
+    chip.classList.toggle('hidden', !server);
+    if (server) {
+        chip.textContent = `✦ ${S.server.boosts || 0}`;
+        chip.title = `${S.server.boosts || 0} overclocks · ${S.server.tier || 0} perk tiers — open Server overclock`;
         chip.onclick = openBoosts;
     }
     $('server-menu-btn').classList.toggle('hidden', !server);
@@ -821,7 +821,7 @@ function logText(l) {
         case 'plus_grant': return `${a} turned Pratr Plus ${l.x} for ${u}`;
         case 'plus_expire': return `${a}’s Plus plan ended (${l.x})`;
         case 'boost_grant': return `${a} received ${l.x}`;
-        case 'server_boost': return `${a} flared the server: ${l.x}`;
+        case 'server_boost': return `${a} overclocked the server: ${l.x}`;
         case 'server_perk': return `${a} changed a server perk: ${l.x}`;
         case 'voice_leave': return `${a} left voice channel ${l.cn} after ${fmtDur(l.d)}`;
         default: return `${a}: ${l.ty}`;
@@ -895,7 +895,7 @@ async function kickMember(m) {
     toast(`${m.username} was kicked.`); loadMembers();
 }
 
-/* ---------- flares & perks ---------- */
+/* ---------- overclocks & perks ---------- */
 let boostData = null;
 async function openBoosts() {
     if (!S.server) return;
@@ -909,7 +909,7 @@ async function loadBoosts() {
     const sid = S.server.id;
     const out = await post({ action: 'boost-info', id: sid });
     if (!S.server || S.server.id !== sid) return;
-    if (!out.res.ok) { $('boost-sub').textContent = out.data.error || 'Could not load flares.'; return; }
+    if (!out.res.ok) { $('boost-sub').textContent = out.data.error || 'Could not load overclocks.'; return; }
     boostData = out.data;
     paintBoosts();
 }
@@ -924,27 +924,29 @@ function paintBoosts() {
     const d = boostData;
     if (!d) return;
     const admin = !!(S.me && S.me.admin);
-    $('boost-sub').textContent = `${d.server} · flares are permanent and never expire`;
+    $('boost-sub').textContent = `${d.server} · overclocks are permanent and never expire`;
     $('boost-count').textContent = String(d.boosts);
     $('boost-tier').textContent = String(d.tier);
     $('boost-mine').textContent = String(d.mine);
     const locked = d.available.filter(p => p.at > d.boosts).sort((a, b) => a.at - b.at);
+    const target = locked.length ? locked[0].at : Math.max(...d.available.map(p => p.at));
+    $('oc-fill').style.width = Math.min(100, Math.round((d.boosts / target) * 100)) + '%';
     $('boost-next').textContent = !d.plus
-        ? 'Pratr Plus gives you 2 flares every month. Flares you already own are kept forever.'
+        ? 'Pratr Plus gives you 2 overclocks every month. Overclocks you already own are kept forever.'
         : locked.length
-            ? `Next perk: ${locked[0].n} at ${locked[0].at} flares — ${locked[0].at - d.boosts} more to go. You get +2 flares every month${d.nextBoosts ? `, next on ${plusDate(d.nextBoosts)}` : ''}.`
-            : `Every perk is unlocked. You get +2 flares every month${d.nextBoosts ? `, next on ${plusDate(d.nextBoosts)}` : ''}.`;
+            ? `Next perk: ${locked[0].n} at ${locked[0].at} overclocks — ${locked[0].at - d.boosts} more to go. You get +2 overclocks every month${d.nextBoosts ? `, next on ${plusDate(d.nextBoosts)}` : ''}.`
+            : `Every perk is unlocked. You get +2 overclocks every month${d.nextBoosts ? `, next on ${plusDate(d.nextBoosts)}` : ''}.`;
     $('boost-1').disabled = d.mine < 1;
     $('boost-2').disabled = d.mine < 2;
-    $('boost-1').textContent = 'Flare ×1';
-    $('boost-2').textContent = 'Flare ×2';
-    $('boost-1').title = $('boost-2').title = d.mine ? `${d.mine} available` : 'No flares available';
+    $('boost-1').textContent = 'Overclock ×1';
+    $('boost-2').textContent = 'Overclock ×2';
+    $('boost-1').title = $('boost-2').title = d.mine ? `${d.mine} available` : 'No overclocks available';
 
     // Admins can apply a big batch at once after topping up their own balance.
     const acts = document.querySelector('#modal-boosts .boost-actions');
     let big = $('boost-100');
     if (!big && acts) {
-        big = h('button', 'btn ghost hidden', 'Flare ×100');
+        big = h('button', 'btn ghost hidden', 'Overclock ×100');
         big.id = 'boost-100'; big.type = 'button';
         big.onclick = () => spendBoosts(100);
         acts.append(big);
@@ -960,7 +962,7 @@ function paintBoosts() {
         const info = h('div', 'perk-info');
         info.append(h('strong', '', p.n), h('small', '', p.d));
         const side = h('div', 'perk-side');
-        const tier = h('em', 'perk-tier', `${p.at} flare${p.at === 1 ? '' : 's'}`);
+        const tier = h('em', 'perk-tier', `${p.at} overclock${p.at === 1 ? '' : 's'}`);
         side.append(tier);
         if (!unlocked) side.append(h('span', 'perk-lock', `${p.at - d.boosts} more`));
         else if (owner) {
@@ -980,13 +982,13 @@ function paintBoosts() {
 
     const hist = $('boost-hist');
     hist.textContent = '';
-    if (!d.history.length) hist.append(h('div', 'side-empty', 'No flares yet. Be the first to flare this server.'));
-    else d.history.forEach(x => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(x.t)), h('span', '', `Flared by ${x.by}`)); hist.append(r); });
+    if (!d.history.length) hist.append(h('div', 'side-empty', 'No overclocks yet. Be the first to overclock this server.'));
+    else d.history.forEach(x => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(x.t)), h('span', '', `Overclocked ×${x.n || 1} by ${x.by}`)); hist.append(r); });
 
     const grants = $('boost-grants');
     grants.textContent = '';
-    if (!d.grants.length) grants.append(h('div', 'side-empty', 'Your +2 monthly flares will be saved here.'));
-    else d.grants.forEach(x => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(x.t)), h('span', '', x.x || '+2 flares')); grants.append(r); });
+    if (!d.grants.length) grants.append(h('div', 'side-empty', 'Your +2 monthly overclocks will be saved here.'));
+    else d.grants.forEach(x => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(x.t)), h('span', '', x.x || '+2 overclocks')); grants.append(r); });
 }
 
 /* banner, logo, custom emoji and stickers — all managed here by the owner */
@@ -1004,7 +1006,7 @@ function renderBoostAssets(d) {
         const prev = h('div', 'asset-prev' + (key === 'banner' ? ' wide' : ''));
         if (d[key]) prev.style.background = `center/cover url("${d[key]}")`; else prev.textContent = key === 'banner' ? 'No banner' : 'No logo';
         const info = h('div', 'asset-info');
-        info.append(h('strong', '', label), h('small', '', enabled ? blurb : `${label} unlocks at ${at} flares — then enable the perk above.`));
+        info.append(h('strong', '', label), h('small', '', enabled ? blurb : `${label} unlocks at ${at} overclocks — then enable the perk above.`));
         const btns = h('div', 'asset-btns');
         if (owner) {
             const up = h('button', 'btn ghost sm', 'Upload');
@@ -1121,24 +1123,24 @@ async function spendBoosts(n) {
     $('boost-msg').textContent = '';
     $('boost-msg').style.color = '';
     const out = await post({ action: 'server-boost', id: S.server.id, count: n });
-    if (!out.res.ok) { $('boost-msg').textContent = out.data.error || 'Could not flare.'; return; }
+    if (!out.res.ok) { $('boost-msg').textContent = out.data.error || 'Could not overclock.'; return; }
     $('boost-msg').style.color = 'var(--bone)';
-    $('boost-msg').textContent = `Nice — ${n} flare${n === 1 ? '' : 's'} added. This server now has ${out.data.boosts}.`;
+    $('boost-msg').textContent = `Nice — ${n} overclock${n === 1 ? '' : 's'} added. This server now has ${out.data.boosts}.`;
     if (S.server) Object.assign(S.server, { boosts: out.data.boosts, tier: out.data.tier, perks: out.data.perks, accent: out.data.accent, banner: out.data.banner || '', logo: out.data.logo || '', emoji: out.data.emoji || [], stickers: out.data.stickers || [] });
     await refreshMe();
     await loadServers();
     renderAll();
     await loadBoosts();
-    toast(`+${n} flare${n === 1 ? '' : 's'} applied.`);
+    toast(`+${n} overclock${n === 1 ? '' : 's'} applied.`);
 }
-async function adminFlares(sign) {
+async function adminOverclocks(sign) {
     const u = $('boost-admin-user').value.trim() || (S.me && S.me.username);
     if (!u) return;
     const n = Math.max(1, Math.min(1000000, Math.round(Number($('boost-admin-count').value) || 100))) * sign;
     const out = await post({ action: 'flare-grant', username: u, count: n });
     if (!out.res.ok) { $('boost-msg').style.color = ''; $('boost-msg').textContent = out.data.error || 'Failed.'; return; }
     $('boost-msg').style.color = 'var(--bone)';
-    $('boost-msg').textContent = `${out.data.username} now has ${out.data.boosts} flares (${n > 0 ? '+' : ''}${n}).`;
+    $('boost-msg').textContent = `${out.data.username} now has ${out.data.boosts} overclocks (${n > 0 ? '+' : ''}${n}).`;
     const mine = S.me && (u.toLowerCase() === String(S.me.username || '').toLowerCase() || u.toLowerCase() === String(S.me.email || '').toLowerCase());
     if (mine) await refreshMe();
     await loadBoosts();
@@ -1146,8 +1148,8 @@ async function adminFlares(sign) {
 $('boost-1').onclick = () => spendBoosts(1);
 $('boost-2').onclick = () => spendBoosts(2);
 $('boost-refresh').onclick = loadBoosts;
-$('boost-admin-give').onclick = () => adminFlares(1);
-$('boost-admin-take').onclick = () => adminFlares(-1);
+$('boost-admin-give').onclick = () => adminOverclocks(1);
+$('boost-admin-take').onclick = () => adminOverclocks(-1);
 
 /* ---------- reactions ---------- */
 const QUICK = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉', '👀', '💯'];

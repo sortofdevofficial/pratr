@@ -21,7 +21,7 @@ async function refreshPlus(uid) {
     const months = Math.min(24, Math.floor((now - u.ng) / MONTH) + 1);
     // Optimistic guard: only the request that still sees this ng value grants, so two tabs cannot double-credit.
     const r = await User.updateOne({ _id: uid, pl: true, ng: u.ng }, { $inc: { ub: 2 * months }, $set: { ng: u.ng + months * MONTH } });
-    if (r.modifiedCount) await lg(0, 'boost_grant', uid, { x: `+${2 * months} flares (${months} month${months === 1 ? '' : 's'})` });
+    if (r.modifiedCount) await lg(0, 'boost_grant', uid, { x: `+${2 * months} overclocks (${months} month${months === 1 ? '' : 's'})` });
   }
 }
 async function refreshPlusMaybe(uid) {
@@ -641,12 +641,12 @@ module.exports = async function handler(req, res) {
       const update = { $set: { pl: true, pe } };
       if (!active) { update.$set.ng = now + MONTH; update.$inc = { ub: 2 }; } // month starts: 2 boosts
       await User.updateOne({ _id: target._id }, update);
-      await lg(0, 'plus_grant', auth.userId, { u: target._id, x: `${active ? 'renewed' : '1-month plan started'} · ${len} days${active ? '' : ' · +2 flares'}` });
+      await lg(0, 'plus_grant', auth.userId, { u: target._id, x: `${active ? 'renewed' : '1-month plan started'} · ${len} days${active ? '' : ' · +2 overclocks'}` });
       return res.status(200).json({ username: target.n, plus: true, until: pe, days: len, boosts: (target.ub || 0) + (active ? 0 : 2), granted: active ? 0 : 2 });
     }
 
     if (action === 'flare-grant') {
-      // Admins can hand out (or take back) any number of flares. They are the same currency Plus grants every month.
+      // Admins can hand out (or take back) any number of overclocks. They are the same currency Plus grants every month.
       const adm = await User.findById(auth.userId).select('e').lean();
       if (!adm || !isAdmin(adm.e)) return res.status(403).json({ error: 'Admins only.' });
       const qn = String(username || '').trim();
@@ -654,10 +654,10 @@ module.exports = async function handler(req, res) {
       const target = await User.findOne({ $or: [{ n: qn }, { e: qn.toLowerCase() }] }).select('n ub').lean();
       if (!target) return res.status(404).json({ error: 'User not found.' });
       const n = Math.round(Number(count) || 0);
-      if (!n) return res.status(400).json({ error: 'Enter how many flares to give or take.' });
+      if (!n) return res.status(400).json({ error: 'Enter how many overclocks to give or take.' });
       const next = Math.max(0, Math.min(1000000, (target.ub || 0) + Math.max(-1000000, Math.min(1000000, n))));
       await User.updateOne({ _id: target._id }, { $set: { ub: next } });
-      await lg(0, 'boost_grant', auth.userId, { u: target._id, x: `${n > 0 ? '+' : ''}${next - (target.ub || 0)} flares (admin)` });
+      await lg(0, 'boost_grant', auth.userId, { u: target._id, x: `${n > 0 ? '+' : ''}${next - (target.ub || 0)} overclocks (admin)` });
       return res.status(200).json({ username: target.n, boosts: next, delta: next - (target.ub || 0) });
     }
 
@@ -667,18 +667,18 @@ module.exports = async function handler(req, res) {
       const [server, me, rows, grants] = await Promise.all([
         Server.findById(sid).select('o n bc bp sc bn lg em sk').lean(),
         User.findById(auth.userId).select('ub pl pe ng').lean(),
-        Boost.find({ s: sid }).sort({ _id: 1 }).limit(500).lean(),
+        Boost.aggregate([{ $match: { s: sid } }, { $group: { _id: '$u', n: { $sum: { $ifNull: ['$n', 1] } }, t: { $max: '$t' } } }, { $sort: { t: -1 } }, { $limit: 30 }]),
         Log.find({ a: auth.userId, ty: 'boost_grant' }).sort({ _id: -1 }).limit(20).lean()
       ]);
       if (!server) return res.status(404).json({ error: 'Server not found.' });
-      const boosters = await User.find({ _id: { $in: [...new Set(rows.map(r => r.u))] } }).select('n').lean();
+      const boosters = await User.find({ _id: { $in: rows.map(r => r._id) } }).select('n').lean();
       const nm = Object.fromEntries(boosters.map(u => [u._id, u.n]));
       const plus = plusOn(me);
       return res.status(200).json({
         server: server.n, owner: server.o, boosts: server.bc || 0, tier: boostTier(server.bc), perks: server.bp || [], accent: server.sc || '',
         banner: server.bn || '', logo: server.lg || '', emoji: server.em || [], stickers: server.sk || [],
         available: BOOST_PERKS, mine: me.ub || 0, plus, nextBoosts: plus ? (me.ng || 0) : 0,
-        history: rows.slice(-30).reverse().map(r => ({ t: r.t, by: nm[r.u] || 'someone' })),
+        history: rows.map(r => ({ t: r.t, by: nm[r._id] || 'someone', n: r.n })),
         grants: grants.map(l => ({ t: l.t, x: l.x }))
       });
     }
@@ -692,16 +692,20 @@ module.exports = async function handler(req, res) {
       const max = adm && isAdmin(adm.e) ? 10000 : 10;
       const amount = Math.max(1, Math.min(max, Math.round(Number(count) || 1)));
       const spent = await User.findOneAndUpdate({ _id: auth.userId, ub: { $gte: amount } }, { $inc: { ub: -amount } }, { new: true }).select('ub').lean();
-      if (!spent) return res.status(400).json({ error: 'You do not have enough flares.' });
+      if (!spent) return res.status(400).json({ error: 'You do not have enough overclocks.' });
       try {
-        for (let i = 0; i < amount; i++) await createWithId(Boost, { u: auth.userId, s: sid });
-        const total = await Boost.countDocuments({ s: sid }); // count from the permanent rows, so the server total can never drift
+        await createWithId(Boost, { u: auth.userId, s: sid, n: amount }); // one row per batch, not per click
+        const agg = await Boost.aggregate([{ $match: { s: sid } }, { $group: { _id: null, t: { $sum: { $ifNull: ['$n', 1] } } } }]);
+        const total = agg.length ? agg[0].t : 0;
         await Server.updateOne({ _id: sid }, { $set: { bc: total } });
-        await lg(sid, 'server_boost', auth.userId, { x: `+${amount} flare${amount === 1 ? '' : 's'}` });
+        const burst = await Log.findOne({ s: sid, ty: 'server_boost', a: auth.userId, t: { $gte: nowSeconds() - 600 } }).sort({ _id: -1 }).lean();
+        const sum = (burst ? burst.d || 0 : 0) + amount;
+        if (burst) await Log.updateOne({ _id: burst._id }, { $set: { t: nowSeconds(), d: sum, x: `+${sum} overclock${sum === 1 ? '' : 's'}` } });
+        else await lg(sid, 'server_boost', auth.userId, { d: amount, x: `+${amount} overclock${amount === 1 ? '' : 's'}` });
         const fresh = await Server.findById(sid).select('bc bp sc bn lg em sk').lean();
         return res.status(200).json({ ok: true, boosts: total, tier: boostTier(total), left: spent.ub, unlocked: BOOST_PERKS.filter(p => total >= p.at).map(p => p.k), perks: fresh.bp || [], accent: fresh.sc || '', banner: fresh.bn || '', logo: fresh.lg || '', emoji: fresh.em || [], stickers: fresh.sk || [] });
       } catch (e) {
-        await User.updateOne({ _id: auth.userId }, { $inc: { ub: amount } }); // never charge for a flare that was not stored
+        await User.updateOne({ _id: auth.userId }, { $inc: { ub: amount } }); // never charge for an overclock that was not stored
         throw e;
       }
     }
@@ -711,7 +715,7 @@ module.exports = async function handler(req, res) {
       if (!server) return res.status(403).json({ error: 'Only the owner can change server perks.' });
       const def = BOOST_PERKS.find(p => p.k === String(perk || ''));
       if (!def) return res.status(400).json({ error: 'Unknown perk.' });
-      if ((server.bc || 0) < def.at) return res.status(400).json({ error: `This perk unlocks at ${def.at} flares.` });
+      if ((server.bc || 0) < def.at) return res.status(400).json({ error: `This perk unlocks at ${def.at} overclocks.` });
       const yes = on !== false;
       const update = yes ? { $addToSet: { bp: def.k } } : { $pull: { bp: def.k } };
       if (def.k === 'accent') {

@@ -340,7 +340,7 @@ textarea { resize: none; display: block; }
 .rail-boost { position: absolute; right: -2px; bottom: -2px; width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; background: linear-gradient(135deg, #ff9edb, #b07bff); color: #241033; font-size: 10px; font-style: normal; font-weight: 900; border: 2px solid var(--bg0); pointer-events: none; }
 .boost-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 8px 0 10px; }
 .boost-stats > div { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 12px 8px; background: var(--bg1); border: 1px solid var(--line); border-radius: 12px; }
-.boost-stats b { font-size: 24px; line-height: 1; background: linear-gradient(135deg, #ffd36b, #b07bff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.boost-stats b { font-size: 24px; line-height: 1; background: linear-gradient(135deg, #5ee0d6, #6ea8ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .boost-stats span { color: var(--mut); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
 .boost-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .boost-actions .btn:disabled { opacity: .4; cursor: not-allowed; }
@@ -446,7 +446,7 @@ body { background: radial-gradient(1200px 700px at -10% -10%, #10203f 0%, transp
 @media (prefers-reduced-motion: reduce) { *, #loadbar i, .skel, .modal-card, .tab-pane { animation: none !important; transition: none !important; } }
 
 /* ============================================================
-   v5: statuses for everyone, Plus glow, server art, Flares
+   v5: statuses for everyone, Plus glow, server art, Overclocks
    ============================================================ */
 
 /* ---- modals: always reachable, even on short screens ---- */
@@ -506,7 +506,7 @@ input.colour-input:disabled { cursor: not-allowed; }
 .sticker-img { max-width: 168px; max-height: 168px; border-radius: 12px; margin-top: 4px; display: block; }
 .emoji-cell.cust img { width: 30px; height: 30px; object-fit: contain; }
 
-/* ---- server art manager inside Flares & perks ---- */
+/* ---- server art manager inside Overclocks & perks ---- */
 .asset-row { display: flex; align-items: center; gap: 12px; padding: 10px; background: var(--bg1); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 8px; }
 .asset-prev { width: 64px; height: 64px; flex: none; border-radius: 10px; background: var(--bg3) center/cover; display: grid; place-items: center; color: var(--dim); font-size: 10px; text-align: center; border: 1px solid var(--line); overflow: hidden; }
 .asset-prev.wide { width: 128px; height: 54px; }
@@ -535,3 +535,12 @@ input.colour-input:disabled { cursor: not-allowed; }
   .boost-stats { gap: 6px; }
   .sticker-img { max-width: 132px; max-height: 132px; }
 }
+
+/* ---------- server overclock ---------- */
+.oc-title { background: linear-gradient(90deg, #5ee0d6, #6ea8ff 60%, #b07bff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.oc-meter { height: 8px; border-radius: 99px; background: var(--bg1); border: 1px solid var(--line); overflow: hidden; margin: 2px 0 10px; }
+.oc-meter i { display: block; height: 100%; width: 0; border-radius: 99px; background: linear-gradient(90deg, #5ee0d6, #6ea8ff, #b07bff); box-shadow: 0 0 12px rgba(94, 224, 214, .55); transition: width .4s ease; }
+#modal-boosts .boost-actions .btn.primary { background: linear-gradient(135deg, #14b8a6, #3b82f6); border-color: transparent; }
+#modal-boosts .boost-actions .btn.primary:hover:not(:disabled) { filter: brightness(1.12); }
+#modal-boosts .logrow span { color: var(--txt); }
+#srv-boosts { cursor: pointer; color: #5ee0d6; border-color: rgba(94, 224, 214, .4); }
