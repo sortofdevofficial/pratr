@@ -3,8 +3,9 @@ const { ACCENTS, cleanColour, MONTH, nowSeconds, isAdmin, isMember, createWithId
 
 const OVERCLOCK_ACTIONS = new Set(['flare-grant', 'boost-info', 'server-boost', 'server-perk', 'boost-history']);
 const STATS_ACTIONS = new Set(['server-stats']);
+const LAYOUT_ACTIONS = new Set(['layout-save']);
 
-// Live stats channels: counts come from the server row, growth from one snapshot per day.
+// Server overview: counts come from the server row, growth from one snapshot per day.
 const snapDone = new Map(); // sid -> "day:members:boosts" so we only write when the day or the numbers change
 async function statsActions({ body, auth, res }) {
   const { action, id } = body;
@@ -17,16 +18,20 @@ async function statsActions({ body, auth, res }) {
       await SStat.updateOne({ _id: `${sid}:${day}` }, { $set: { s: sid, d: day, m: memberIds.length, o: server.bc || 0 } }, { upsert: true });
       snapDone.set(sid, stamp);
     }
-    const [snaps, users, inVoice, week, boostRows, voiceTop] = await Promise.all([
+    const since = (day - 29) * 86400, weekAgo = now - 604800;
+    const [snaps, users, inVoice, week, boostRows, voiceTop, weekMsgs, msgDays, chatterRows] = await Promise.all([
       SStat.find({ s: sid, d: { $gte: day - 29 } }).sort({ d: 1 }).lean(),
       User.find({ _id: { $in: memberIds } }).select('n ls i').lean(),
       Voice.find({ s: sid, ts: { $gt: vLive() } }).select('ch').lean(),
-      Log.aggregate([{ $match: { s: sid, ty: 'voice_leave', t: { $gt: now - 604800 } } }, { $group: { _id: null, t: { $sum: '$d' } } }]),
+      Log.aggregate([{ $match: { s: sid, ty: 'voice_leave', t: { $gt: weekAgo } } }, { $group: { _id: null, t: { $sum: '$d' } } }]),
       Boost.find({ s: sid, t: { $gte: now - MONTH } }).select('u n').lean(),
-      VStat.find({ s: sid }).sort({ t: -1 }).limit(5).lean()
+      VStat.find({ s: sid }).sort({ t: -1 }).limit(5).lean(),
+      Msg.countDocuments({ s: sid, t: { $gt: weekAgo } }),
+      Msg.aggregate([{ $match: { s: sid, t: { $gte: since } } }, { $group: { _id: { $floor: { $divide: ['$t', 86400] } }, n: { $sum: 1 } } }, { $sort: { _id: 1 } }]),
+      Msg.aggregate([{ $match: { s: sid, t: { $gt: weekAgo } } }, { $group: { _id: '$a', n: { $sum: 1 } } }, { $sort: { n: -1 } }, { $limit: 5 }])
     ]);
     const nm = Object.fromEntries(users.map(u => [u._id, u.n]));
-    const missing = [...new Set([...boostRows.map(b => b.u), ...voiceTop.map(v => v.u)].filter(u => u != null && !nm[u]))];
+    const missing = [...new Set([...boostRows.map(b => b.u), ...voiceTop.map(v => v.u), ...chatterRows.map(c => c._id)].filter(u => u != null && !nm[u]))];
     if (missing.length) (await User.find({ _id: { $in: missing } }).select('n').lean()).forEach(u => { nm[u._id] = u.n; });
     const byUser = {};
     for (const b of boostRows) byUser[b.u] = (byUser[b.u] || 0) + (b.n || 1);
@@ -38,8 +43,45 @@ async function statsActions({ body, auth, res }) {
       boosts, tier: boostTier(boosts), nextPerk: next ? { n: next.n, at: next.at } : null,
       series: snaps.map(r => ({ d: r.d, m: r.m || 0, o: r.o || 0 })),
       weekVoice: week[0] ? week[0].t : 0,
+      weekMsgs,
+      msgSeries: msgDays.map(r => ({ d: r._id, n: r.n })),
       topVoice: voiceTop.map(v => ({ username: nm[v.u] || 'Member', t: v.t || 0 })),
+      topChatters: chatterRows.map(c => ({ username: nm[c._id] || 'Member', n: c.n })),
       topBoosters, day
+    });
+  }
+  return res.status(400).json({ error: 'Invalid action.' });
+}
+
+// Owners drag channels and categories to reorder them and rename categories. The whole layout is sent each time:
+// cats = [{ n: 'Category name', ids: [channelId, ...] }] in display order. Unknown or foreign ids are ignored.
+async function layoutActions({ body, auth, res }) {
+  const { action, id, cats } = body;
+  if (action === 'layout-save') {
+    const sid = Number(id);
+    if (!(await Server.exists({ _id: sid, o: auth.userId }))) return res.status(403).json({ error: 'Only the owner can change the layout.' });
+    if (!Array.isArray(cats) || !cats.length) return res.status(400).json({ error: 'Send the channel layout.' });
+    const chans = await Channel.find({ s: sid, d: { $ne: 1 } }).select('n').lean();
+    const mine = new Set(chans.map(c => c._id));
+    const seen = new Set(), names = [], ops = [];
+    for (const cat of cats) {
+      const name = String(cat && cat.n || '').trim().slice(0, 40) || 'CHANNELS';
+      names.push(name);
+      const ids = Array.isArray(cat && cat.ids) ? cat.ids.map(Number) : [];
+      ids.forEach((cid, i) => {
+        if (!mine.has(cid) || seen.has(cid)) return;
+        seen.add(cid);
+        ops.push({ updateOne: { filter: { _id: cid }, update: { $set: { cat: name, o: i } } } });
+      });
+    }
+    if (!ops.length) return res.status(400).json({ error: 'No channels to arrange.' });
+    await Channel.bulkWrite(ops, { ordered: false });
+    await Server.updateOne({ _id: sid }, { $set: { co: names } });
+    await lg(sid, 'channel_layout', auth.userId, { x: `${names.length} categor${names.length === 1 ? 'y' : 'ies'} arranged` });
+    const fresh = await Channel.find({ s: sid, d: { $ne: 1 } }).sort({ o: 1, _id: 1 }).lean();
+    return res.status(200).json({
+      cats: names,
+      channels: fresh.map(c => ({ id: c._id, name: c.n, category: c.cat, kind: c.k || 't', sub: c.st || '', order: c.o || 0 }))
     });
   }
   return res.status(400).json({ error: 'Invalid action.' });
@@ -147,8 +189,8 @@ async function migrateAction({ body, auth, res }) {
     if (action === 'migrate') {
       const adm = await User.findById(auth.userId).select('e').lean();
       if (!adm || !isAdmin(adm.e)) return res.status(403).json({ error: 'Admins only.' });
-      const [m1, m2, m3, m4, m5] = await Promise.all([Meta.findById('migrate1').lean(), Meta.findById('migrate2').lean(), Meta.findById('migrate3').lean(), Meta.findById('migrate4').lean(), Meta.findById('migrate5').lean()]);
-      if (m1 && m1.v === 1 && m2 && m2.v === 1 && m3 && m3.v === 1 && m4 && m4.v === 1 && m5 && m5.v === 1) return res.status(200).json({ ok: true, already: true, at: m5.at });
+      const [m1, m2, m3, m4, m5, m6] = await Promise.all([Meta.findById('migrate1').lean(), Meta.findById('migrate2').lean(), Meta.findById('migrate3').lean(), Meta.findById('migrate4').lean(), Meta.findById('migrate5').lean(), Meta.findById('migrate6').lean()]);
+      if (m1 && m1.v === 1 && m2 && m2.v === 1 && m3 && m3.v === 1 && m4 && m4.v === 1 && m5 && m5.v === 1 && m6 && m6.v === 1) return res.status(200).json({ ok: true, already: true, at: m6.at });
       let vstats = 0, vtSet = 0, mcSet = 0, defaults = 0;
       if (!(m1 && m1.v === 1)) {
         try { await Meta.create({ _id: 'migrate1', v: 0, at: 0 }); } catch (e) { if (e.code !== 11000) throw e; }
@@ -238,8 +280,35 @@ async function migrateAction({ body, auth, res }) {
         await Promise.all([SStat.createIndexes(), Channel.createIndexes(), User.createIndexes()]);
         await Meta.updateOne({ _id: 'migrate5' }, { v: 1, at: nowSeconds() });
       }
-      await lg(0, 'migrate', auth.userId, { x: `vstats ${vstats}, vt ${vtSet}, mc ${mcSet}, friends ${fr.modifiedCount}, plans ${legacyPlans}, servers ${serverDefaults}, statuses ${statusDefaults}, assets ${serverAssets}, stats ${statsSeeded}` });
-      return res.status(200).json({ ok: true, vstats, vtBackfilled: vtSet, mcBackfilled: mcSet, defaults, friendsBackfilled: fr.modifiedCount, planDefaults, legacyPlans, serverDefaults, statusDefaults, serverAssets, statsSeeded, nameFontDefaults });
+      // v7: channel and category order. Legacy stats channels are hidden (the server overview replaces them),
+      // then every server gets its current sidebar order frozen into channels.o and servers.co.
+      let hiddenStats = 0, layoutChannels = 0, layoutServers = 0;
+      if (!(m6 && m6.v === 1)) {
+        try { await Meta.create({ _id: 'migrate6', v: 0, at: 0 }); } catch (e) { if (e.code !== 11000) throw e; }
+        hiddenStats = (await Channel.updateMany({ k: 's', d: { $ne: 1 } }, { $set: { d: 1 } })).modifiedCount;
+        const chans = await Channel.find({ d: { $ne: 1 } }).select('s cat').sort({ s: 1, _id: 1 }).lean();
+        const per = new Map();
+        for (const c of chans) {
+          if (!per.has(c.s)) per.set(c.s, []);
+          per.get(c.s).push(c);
+        }
+        const chOps = [], svOps = [];
+        for (const [sid, list] of per) {
+          const names = [];
+          list.forEach((c, i) => {
+            const name = String(c.cat || '').trim() || 'TEXT CHANNELS';
+            if (!names.includes(name)) names.push(name);
+            chOps.push({ updateOne: { filter: { _id: c._id }, update: { $set: { o: i } } } });
+          });
+          svOps.push({ updateOne: { filter: { _id: sid }, update: { $set: { co: names } } } });
+        }
+        if (chOps.length) layoutChannels = (await Channel.bulkWrite(chOps, { ordered: false })).modifiedCount || 0;
+        if (svOps.length) layoutServers = (await Server.bulkWrite(svOps, { ordered: false })).modifiedCount || 0;
+        await Promise.all([Channel.createIndexes(), Msg.createIndexes(), Server.createIndexes()]);
+        await Meta.updateOne({ _id: 'migrate6' }, { v: 1, at: nowSeconds() });
+      }
+      await lg(0, 'migrate', auth.userId, { x: `vstats ${vstats}, vt ${vtSet}, mc ${mcSet}, friends ${fr.modifiedCount}, plans ${legacyPlans}, servers ${serverDefaults}, statuses ${statusDefaults}, assets ${serverAssets}, stats ${statsSeeded}, layout ${layoutChannels}` });
+      return res.status(200).json({ ok: true, vstats, vtBackfilled: vtSet, mcBackfilled: mcSet, defaults, friendsBackfilled: fr.modifiedCount, planDefaults, legacyPlans, serverDefaults, statusDefaults, serverAssets, statsSeeded, nameFontDefaults, hiddenStats, layoutChannels, layoutServers });
     }
 }
 
@@ -303,4 +372,4 @@ async function voiceActions({ body, auth, res }) {
     return res.status(400).json({ error: 'Invalid action.' });
 }
 
-module.exports = { overclockActions, migrateAction, voiceActions, statsActions, OVERCLOCK_ACTIONS, STATS_ACTIONS };
+module.exports = { overclockActions, migrateAction, voiceActions, statsActions, layoutActions, OVERCLOCK_ACTIONS, STATS_ACTIONS, LAYOUT_ACTIONS };

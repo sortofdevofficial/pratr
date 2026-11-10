@@ -20,7 +20,8 @@ const ICON = {
     lock: svg('M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4'),
     user: svg('M20 21a8 8 0 0 0-16 0M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z'),
     up: svg('M12 20V4M6 10l6-6 6 6'),
-    eye: svg('M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z')
+    eye: svg('M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'),
+    edit: svg('M11 4H4v16h16v-7M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z')
 };
 
 const S = {
@@ -28,7 +29,7 @@ const S = {
     me: null, servers: [], friends: [], requests: { in: [], out: [] }, view: 'home',
     server: null, channels: [], channelId: null, dm: null, members: [],
     last: {}, chLoaded: false, sig: '', sending: false, membersOn: (() => { try { const v = localStorage.getItem('members'); if (v) return v === '1'; } catch {} return window.innerWidth > 760; })(),
-    login: true, t1: null, t2: null, t3: null, t4: null, t5: null, maxId: {}, fullAt: {}, voice: {}, reply: null, oc: false, stats: null
+    login: true, t1: null, t2: null, t3: null, t4: null, t5: null, maxId: {}, fullAt: {}, voice: {}, reply: null, oc: false, statsOpen: false, cats: [], stats: null
 };
 const V = { on: false, sid: null, chId: null, name: '', sname: '', stream: null, peers: new Map(), watch: new Map(), speak: new Set(), early: {}, cool: {}, joined: {}, ice: [], muted: false, deaf: false, mutedBefore: false, sig: '', ctx: null };
 
@@ -220,7 +221,7 @@ function startTimers() {
     S.t3 = setInterval(() => { if (!document.hidden) quiet(loadVoice); }, 2500);
     clearInterval(S.t4); S.t4 = setInterval(() => quiet(pollUnread), 5000); quiet(pollUnread); // also runs hidden, for notifications
     S.t5 = setInterval(() => { if (!document.hidden && S.view === 'server' && S.server) quiet(loadStats); }, 30000);
-    S.t1 = setInterval(() => { if (!document.hidden && S.view !== 'home' && !S.oc) quiet(() => loadMessages(false)); }, 3000);
+    S.t1 = setInterval(() => { if (!document.hidden && S.view !== 'home' && !S.oc && !S.statsOpen) quiet(() => loadMessages(false)); }, 3000);
     S.t2 = setInterval(() => {
         if (document.hidden) return;
         quiet(async () => {
@@ -263,10 +264,11 @@ async function loadChannels(reset = false) {
     const out = await post({ action: 'channels', id: S.server.id });
     if (!out.res.ok) return;
     S.channels = out.data.channels || [];
+    S.cats = out.data.cats || [];
     S.chLoaded = true;
     if (reset || !S.channels.some(c => c.id === S.channelId)) {
         const rem = S.channels.find(c => c.id === S.last[S.server.id]);
-        const pick = rem || S.channels[0];
+        const pick = rem || S.channels.find(c => c.kind === 't') || S.channels[0]; // opening a server lands in text, not voice
         S.channelId = pick ? pick.id : null;
     }
 }
@@ -288,15 +290,16 @@ async function loadStats() {
     if (!out.res.ok || !S.server || S.server.id !== sid) return;
     S.stats = out.data;
     renderSide();
-    if (S.view === 'server' && (curChannel() || {}).kind === 's') renderMain();
+    if (S.view === 'server' && S.statsOpen) renderMain();
 }
 async function loadMessages(force = false) {
     const key = chatKey();
     if (!key) return;
     const isServer = S.view === 'server';
     if (isServer && S.channelId == null) return;
+    if (S.oc || S.statsOpen) return; // server pages cover the chat area
     const cur = isServer ? (curChannel() || {}) : null;
-    if (cur && (cur.kind === 'v' || cur.kind === 's')) return; // voice and live stats channels have no message history
+    if (cur && cur.kind === 'v') return; // voice channels have no message history
     const after = S.maxId[key];
     const full = force || after == null || Date.now() - (S.fullAt[key] || 0) > 30000; // periodic full resync catches reactions/deletes on older messages
     const out = await post({ action: 'messages', kind: isServer ? 'server' : 'dm', id: isServer ? S.server.id : S.dm.id, ...(isServer ? { channelId: S.channelId } : {}), ...(!full ? { afterId: after } : {}) });
@@ -319,7 +322,7 @@ $('scrim').onclick = closeNav;
 $('rail-home').onclick = () => { goHome(); closeNav(); };
 $('nav-friends').onclick = () => { goHome(); closeNav(); };
 $('rail-discover').onclick = () => {
-    S.view = 'discover'; S.server = null; S.dm = null; S.channels = []; S.channelId = null; S.members = []; S.sig = '';
+    S.view = 'discover'; S.server = null; S.dm = null; S.channels = []; S.cats = []; S.channelId = null; S.members = []; S.sig = ''; S.oc = false; S.statsOpen = false;
     renderAll(); loadDiscover(); syncUrl(); closeNav();
 };
 
@@ -354,13 +357,13 @@ async function loadDiscover() {
 $('disc-q').oninput = () => { clearTimeout(discT); discT = setTimeout(loadDiscover, 250); };
 
 function goHome() {
-    S.view = 'home'; S.server = null; S.dm = null; S.channels = []; S.channelId = null; S.members = []; S.sig = ''; S.oc = false; S.stats = null;
+    S.view = 'home'; S.server = null; S.dm = null; S.channels = []; S.cats = []; S.channelId = null; S.members = []; S.sig = ''; S.oc = false; S.statsOpen = false; S.stats = null;
     renderAll(); syncUrl();
 }
 async function openServer(id) {
     const s = S.servers.find(x => x.id === id);
     if (!s) return;
-    S.view = 'server'; S.server = s; S.dm = null; S.chLoaded = false; S.channels = []; S.channelId = null; S.members = []; S.sig = ''; S.oc = false; S.stats = null;
+    S.view = 'server'; S.server = s; S.dm = null; S.chLoaded = false; S.channels = []; S.cats = []; S.channelId = null; S.members = []; S.sig = ''; S.oc = false; S.statsOpen = false; S.stats = null;
     $('messages').textContent = '';
     renderAll();
     await loadChannels(true);
@@ -372,7 +375,7 @@ async function openServer(id) {
     closeNav();
 }
 function openDM(user) {
-    S.view = 'dm'; S.dm = S.friends.find(x => x.id === user.id) || user; S.server = null; S.channels = []; S.channelId = null; S.sig = ''; S.oc = false; S.stats = null;
+    S.view = 'dm'; S.dm = S.friends.find(x => x.id === user.id) || user; S.server = null; S.channels = []; S.cats = []; S.channelId = null; S.sig = ''; S.oc = false; S.statsOpen = false; S.stats = null;
     paintSig.delete('dmcard'); // always redraw the side card, never show the previous person
     $('messages').textContent = '';
     renderAll();
@@ -382,7 +385,7 @@ function openDM(user) {
     $('chat-input').focus();
 }
 function selectChannel(id) {
-    S.channelId = id; S.last[S.server.id] = id; S.sig = ''; S.oc = false;
+    S.channelId = id; S.last[S.server.id] = id; S.sig = ''; S.oc = false; S.statsOpen = false;
     $('messages').textContent = '';
     renderSide(); renderMain();
     loadMessages(true); // it marks the conversation read once the real cursor is known
@@ -390,7 +393,6 @@ function selectChannel(id) {
     closeNav();
     const vc = curChannel();
     if (vc && vc.kind === 'v') joinVoice(vc);
-    if (vc && vc.kind === 's') loadStats();
 }
 
 /* ---------- per-area URLs ---------- */
@@ -398,7 +400,7 @@ let navSilent = false; // true while the current view came from the address bar,
 function routePath() {
     if (S.view === 'discover') return '/discover';
     if (S.view === 'dm' && S.dm) return '/dm/' + encodeURIComponent(S.dm.username || S.dm.id);
-    if (S.view === 'server' && S.server) return '/channels/' + S.server.id + (S.oc ? '/overclock' : S.channelId != null ? '/' + S.channelId : '');
+    if (S.view === 'server' && S.server) return '/channels/' + S.server.id + (S.oc ? '/overclock' : S.statsOpen ? '/overview' : S.channelId != null ? '/' + S.channelId : '');
     return '/friends';
 }
 function syncUrl(replace) {
@@ -420,6 +422,7 @@ async function goLink(path) {
         if (!S.servers.some(s => s.id === sid)) return toast('You are not a member of that server.', true);
         await openServer(sid);
         if (parts[2] === 'overclock') return openBoosts();
+        if (parts[2] === 'overview') return openOverview();
         const cid = Number(parts[2]);
         const c = S.channels.find(x => x.id === cid);
         if (!c) return;
@@ -428,7 +431,7 @@ async function goLink(path) {
         return;
     }
     if (parts[0] === 'discover') {
-        S.view = 'discover'; S.server = null; S.dm = null; S.channels = []; S.channelId = null; S.members = []; S.sig = ''; S.oc = false;
+        S.view = 'discover'; S.server = null; S.dm = null; S.channels = []; S.cats = []; S.channelId = null; S.members = []; S.sig = ''; S.oc = false; S.statsOpen = false;
         renderAll(); loadDiscover(); syncUrl();
         return;
     }
@@ -443,6 +446,7 @@ async function restoreRoute() {
 }
 window.addEventListener('popstate', () => { if (S.token && S.me) restoreRoute(); });
 $('oc-back').onclick = () => closeBoosts();
+$('sp-back').onclick = () => closeOverview();
 $('share-btn').onclick = () => copy(location.origin + routePath());
 
 /* ---------- composer ---------- */

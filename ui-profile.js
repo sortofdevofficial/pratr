@@ -297,7 +297,7 @@ async function openBoosts() {
     if (!S.server) return;
     $('boost-msg').textContent = '';
     $('boost-msg').style.color = '';
-    S.oc = true;
+    S.oc = true; S.statsOpen = false;
     renderAll();
     syncUrl();
     closeNav();

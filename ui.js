@@ -37,7 +37,7 @@ function paintRail() {
 }
 
 function renderSide() {
-    paintOnce('side', JSON.stringify([S.view, S.server, S.channels, S.friends, S.unread, S.voice, S.channelId, S.dm && S.dm.id, S.oc, S.stats && [S.stats.members, S.stats.online], S.me && S.me.id]), paintSide);
+    paintOnce('side', JSON.stringify([S.view, S.server, S.channels, S.cats, S.friends, S.unread, S.voice, S.channelId, S.dm && S.dm.id, S.oc, S.statsOpen, S.stats && [S.stats.members, S.stats.online], S.me && S.me.id]), paintSide);
 }
 function paintSide() {
     const server = S.view === 'server' && S.server;
@@ -81,52 +81,7 @@ function paintSide() {
         dms.append(b);
     });
 
-    const list = $('channel-list');
-    list.textContent = '';
-    if (!server) return;
-    if (!S.channels.length) list.append(h('div', 'side-empty', 'No text channels yet.'));
-    const cats = {};
-    S.channels.forEach(c => (cats[c.category || 'TEXT CHANNELS'] = cats[c.category || 'TEXT CHANNELS'] || []).push(c));
-    Object.entries(cats).forEach(([cat, chans]) => {
-        const t = h('div', 'sec-title');
-        t.append(h('span', '', cat));
-        if (isOwner()) {
-            const add = h('button', 'icon-btn'); add.innerHTML = ICON.plus; add.title = 'Create channel';
-            add.onclick = () => openChannelModal(cat);
-            t.append(add);
-        }
-        list.append(t);
-        chans.forEach(c => {
-            const it = h('div', 'ch-item' + (c.id === S.channelId && !S.oc ? ' active' : ''));
-            it.tabIndex = 0; it.setAttribute('role', 'button');
-            it.innerHTML = c.kind === 'v' ? ICON.speaker : c.kind === 's' ? (c.sub === 'boost' ? ICON.bolt : c.sub === 'voice' ? ICON.mic : ICON.chart) : ICON.hash;
-            const un = c.kind === 't' && S.unread.channels[c.id];
-            it.append(h('span', c.id === S.channelId && !S.oc ? '' : (un ? 'unread' : ''), c.name));
-            if (c.kind === 's' && c.sub === 'live' && S.stats) it.append(h('em', 'ch-count', String(S.stats.members)));
-            if (un && un.pings) it.append(h('em', 'ping-badge', String(un.pings)));
-            else if (un) it.append(h('i', 'unread-dot'));
-            if (isOwner()) {
-                const del = h('button', 'ch-del'); del.innerHTML = ICON.trash; del.title = 'Delete channel';
-                del.onclick = (e) => { e.stopPropagation(); deleteChannel(c); };
-                it.append(del);
-            }
-            it._ctx = [['Open channel', () => selectChannel(c.id)], ['Copy link', () => copy(location.origin + '/channels/' + S.server.id + '/' + c.id)], ['Copy name', () => copy(c.name)], ...idItem('channel', c.id), ...(isOwner() ? ['-', ['Delete channel', () => deleteChannel(c), true]] : [])];
-            it.onclick = () => selectChannel(c.id);
-            it.onkeydown = (e) => { if (e.key === 'Enter') selectChannel(c.id); };
-            list.append(it);
-            if (c.kind === 'v') (S.voice[c.id] || []).forEach(p => list.append(voiceRow(p)));
-        });
-    });
-
-    const ocSec = h('div', 'sec-title'); ocSec.append(h('span', '', 'Overclocks'));
-    list.append(ocSec);
-    const oc = h('div', 'ch-item oc-item' + (S.oc ? ' active' : ''));
-    oc.tabIndex = 0; oc.setAttribute('role', 'button');
-    oc.append(h('span', 'oc-star', '✦'), h('span', '', 'Server overclock'), h('em', 'oc-count', String(S.server.boosts || 0)));
-    oc.title = `${S.server.boosts || 0} overclocks · ${S.server.tier || 0} perk tiers — perks, art, free emoji and stickers`;
-    oc.onclick = () => openBoosts();
-    oc.onkeydown = (e) => { if (e.key === 'Enter') openBoosts(); };
-    list.append(oc);
+    paintChannelList();
 }
 
 function renderFriends() {
@@ -194,8 +149,8 @@ function renderMain() {
     if (disc) return;
     const isServer = S.view === 'server';
     const oc = isServer && S.oc;
+    const sp = isServer && S.statsOpen;
     const ch = isServer ? curChannel() : null;
-    const statsCh = !!(isServer && ch && ch.kind === 's');
     const icon = $('chat-icon');
     icon.textContent = '';
     if (oc) {
@@ -204,10 +159,16 @@ function renderMain() {
         $('chat-name').style.color = S.server.accent ? ink(S.server.accent) : '';
         $('chat-name').style.fontFamily = fontOf(S.server.font);
         $('chat-sub').textContent = S.server.name;
+    } else if (sp) {
+        icon.innerHTML = ICON.chart;
+        $('chat-name').textContent = 'Server overview';
+        $('chat-name').style.color = S.server.accent ? ink(S.server.accent) : '';
+        $('chat-name').style.fontFamily = fontOf(S.server.font);
+        $('chat-sub').textContent = S.server.name;
     } else if (isServer) {
-        if (S.server.logo && !(ch && (ch.kind === 'v' || ch.kind === 's'))) {
+        if (S.server.logo && !(ch && ch.kind === 'v')) {
             const im = h('img', 'topbar-logo'); im.src = S.server.logo; im.alt = ''; icon.append(im);
-        } else icon.innerHTML = ch && ch.kind === 'v' ? ICON.speaker : ch && ch.kind === 's' ? (ch.sub === 'boost' ? ICON.bolt : ch.sub === 'voice' ? ICON.mic : ICON.chart) : ICON.hash;
+        } else icon.innerHTML = ch && ch.kind === 'v' ? ICON.speaker : ICON.hash;
         $('chat-name').textContent = ch ? ch.name : S.server.name;
         $('chat-name').style.color = ink(S.server.accent || '');
         $('chat-name').style.fontFamily = ch ? '' : fontOf(S.server.font);
@@ -225,24 +186,24 @@ function renderMain() {
         tb.classList.toggle('has-banner', isServer && !!S.server.banner);
         tb.style.backgroundImage = isServer && S.server.banner ? `linear-gradient(90deg, rgba(6,12,25,.55), rgba(6,12,25,.85)), url("${S.server.banner}")` : '';
     }
-    $('invite-btn').classList.toggle('hidden', !isServer || oc);
-    $('members-btn').classList.toggle('hidden', oc);
+    $('invite-btn').classList.toggle('hidden', !isServer || oc || sp);
+    $('members-btn').classList.toggle('hidden', oc || sp);
     $('members-btn').title = isServer ? 'Members' : 'Profile';
     $('members-btn').classList.toggle('on', S.membersOn);
     $('chat-body').classList.toggle('members-on', isServer && S.membersOn);
     $('chat-body').classList.toggle('dm-on', !isServer && S.membersOn);
-    $('chat-body').classList.toggle('hidden', oc);
+    $('chat-body').classList.toggle('hidden', oc || sp);
     $('oc-page').classList.toggle('hidden', !oc);
+    $('sp-page').classList.toggle('hidden', !sp);
+    if (sp) renderOverview();
     if (!isServer) renderDmCard();
 
     const none = isServer && S.chLoaded && !ch;
     const isVoice = !!(ch && ch.kind === 'v');
-    $('stats-page').classList.toggle('hidden', !statsCh);
-    if (statsCh) renderStats(ch);
     const longOk = (S.me && S.me.plus) || (isServer && S.server && (S.server.perks || []).includes('longmsg'));
     $('chat-input').maxLength = longOk ? 4000 : 2000;
-    $('messages').classList.toggle('hidden', none || isVoice || statsCh);
-    $('composer-wrap').classList.toggle('hidden', isServer && (!ch || isVoice || statsCh));
+    $('messages').classList.toggle('hidden', none || isVoice);
+    $('composer-wrap').classList.toggle('hidden', isServer && (!ch || isVoice));
     $('voice-stage').classList.toggle('hidden', !isVoice);
     if (isVoice) renderVoiceStage();
     $('chat-empty').classList.toggle('hidden', !none);
@@ -547,33 +508,33 @@ function handleInvite() {
     joinWithCode(code);
 }
 
-const KIND_CAT = { t: 'TEXT CHANNELS', v: 'VOICE CHANNELS', live: 'LIVE STATS', boost: 'LIVE STATS', voice: 'LIVE STATS' };
-const DEFAULT_CATS = ['TEXT CHANNELS', 'VOICE CHANNELS', 'LIVE STATS'];
+const DEFAULT_CATS = ['TEXT CHANNELS', 'VOICE CHANNELS'];
 function openChannelModal(cat) {
     if (!isOwner()) return;
     $('channel-modal-msg').textContent = '';
     $('cat-options').textContent = '';
-    [...new Set(S.channels.map(c => c.category))].forEach(c => { const o = document.createElement('option'); o.value = c; $('cat-options').append(o); });
+    [...new Set([...(S.cats || []), ...S.channels.map(c => c.category)])].filter(Boolean).forEach(c => { const o = document.createElement('option'); o.value = c; $('cat-options').append(o); });
     $('new-channel-cat').value = cat || 'TEXT CHANNELS';
-    $('new-channel-kind').value = cat === 'VOICE CHANNELS' ? 'v' : cat === 'LIVE STATS' ? 'live' : 't';
+    $('new-channel-kind').value = cat === 'VOICE CHANNELS' ? 'v' : 't';
     $('new-channel-name').value = '';
     openModal('modal-channel');
 }
 $('new-channel-kind').onchange = () => {
     const cur = $('new-channel-cat').value.trim();
-    if (!cur || DEFAULT_CATS.includes(cur)) $('new-channel-cat').value = KIND_CAT[$('new-channel-kind').value] || 'TEXT CHANNELS';
+    if (!cur || DEFAULT_CATS.includes(cur)) $('new-channel-cat').value = $('new-channel-kind').value === 'v' ? 'VOICE CHANNELS' : 'TEXT CHANNELS';
 };
 $('channel-create-form').onsubmit = async (e) => {
     e.preventDefault();
     if (!S.server) return;
     const kind = $('new-channel-kind').value;
-    const out = await post({ action: 'channel-create', id: S.server.id, channelName: $('new-channel-name').value, ck: kind, category: $('new-channel-cat').value.trim() || KIND_CAT[kind] || 'TEXT CHANNELS' });
+    const out = await post({ action: 'channel-create', id: S.server.id, channelName: $('new-channel-name').value, ck: kind, category: $('new-channel-cat').value.trim() || (kind === 'v' ? 'VOICE CHANNELS' : 'TEXT CHANNELS') });
     if (!out.res.ok) { $('channel-modal-msg').textContent = out.data.error || 'Could not create channel.'; return; }
     closeModals();
     await loadChannels();
-    S.channelId = out.data.channel.id; S.last[S.server.id] = S.channelId; S.sig = '';
+    S.channelId = out.data.channel.id; S.last[S.server.id] = S.channelId; S.sig = ''; S.oc = false; S.statsOpen = false;
     renderAll();
-    if (out.data.channel.kind === 's') loadStats(); else loadMessages(true);
+    syncUrl();
+    loadMessages(true);
     toast('Channel created.');
 };
 async function deleteChannel(c) {

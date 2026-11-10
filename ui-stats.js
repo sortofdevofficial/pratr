@@ -1,47 +1,77 @@
 'use strict';
 
-/* ui-stats: live member, overclock and voice-activity channels, with inline SVG growth charts. */
+/* ui-stats: the built-in Server overview — growth charts, live counts and leaderboards. */
 
-function renderStats(ch) {
-    const st = S.stats || {};
-    const key = [ch.id, ch.sub, S.server && S.server.id, S.server && S.server.accent, st.day, st.members, st.online, st.voice, st.boosts, st.weekVoice, (st.series || []).length].join('|');
-    paintOnce('stats', key, () => paintStats(ch));
+async function openOverview() {
+    if (!S.server) return;
+    S.statsOpen = true; S.oc = false;
+    renderAll();
+    syncUrl();
+    closeNav();
+    await loadStats();
+    renderMain();
+}
+function closeOverview() {
+    if (!S.statsOpen) return;
+    S.statsOpen = false;
+    renderAll();
+    syncUrl();
+    $('chat-input').focus();
 }
 
-function paintStats(ch) {
-    const box = $('stats-page');
+function renderOverview() {
+    const st = S.stats || {};
+    const key = [S.server && S.server.id, S.server && S.server.accent, st.day, st.members, st.online, st.voice, st.weekMsgs, st.boosts, st.tier, st.weekVoice,
+        (st.series || []).length, (st.msgSeries || []).length, (st.topChatters || []).length, (st.topBoosters || []).length, (st.topVoice || []).length].join('|');
+    paintOnce('overview', key, paintOverview);
+}
+
+function paintOverview() {
+    const box = $('sp-body');
     box.textContent = '';
-    if (!S.stats) {
+    const st = S.stats;
+    if (!st) {
+        $('sp-sub').textContent = 'Reading this server’s numbers…';
         box.append(h('div', 'stat-loading', 'Reading this server’s numbers…'));
         return;
     }
-    const st = S.stats, sub = ch.sub || 'live', colour = (S.server && cleanHex(S.server.accent)) || '#ff5a4e';
+    const colour = (S.server && cleanHex(S.server.accent)) || '#ff5a4e';
+    $('sp-sub').textContent = `${st.name || S.server.name} · ${st.members} member${st.members === 1 ? '' : 's'} · refreshed every 30 seconds`;
+
     const head = h('div', 'stat-head');
     const big = h('div', 'stat-big');
-    const titles = { live: ['Members', 'People in this server right now'], boost: ['Overclocks', 'Every overclock this server has received'], voice: ['Voice this week', 'Time members spent in voice channels'] };
-    const [label, blurb] = titles[sub] || titles.live;
-    big.append(h('span', 'stat-label', label), h('strong', '', sub === 'voice' ? fmtDur(st.weekVoice || 0) : sub === 'boost' ? String(st.boosts || 0) : String(st.members || 0)), h('small', '', blurb));
+    big.append(h('span', 'stat-label', 'Members'), h('strong', '', String(st.members || 0)), h('small', '', `${st.online || 0} online now · ${st.voice || 0} in voice · ${deltaLabel(st, 'm')} in the last 30 days`));
     head.append(big);
     const chip = h('span', 'stat-live'); chip.innerHTML = '<i class="pdot on"></i>Live';
     head.append(chip);
-    box.append(head);
 
     const tiles = h('div', 'stat-tiles');
-    if (sub === 'live') {
-        tiles.append(statTile('user', 'Online now', `${st.online || 0}/${st.members || 0}`), statTile('speaker', 'In voice', String(st.voice || 0)), statTile('chart', 'Last 30 days', deltaLabel(st, 'm')));
-        box.append(tiles, chartCard('Member growth', st, 'm', colour, 'No members yet — the chart fills in as people join.'));
-    } else if (sub === 'boost') {
-        tiles.append(statTile('bolt', 'Perk tier', `${st.tier || 0}/6`), statTile('chart', 'Next perk', st.nextPerk ? `${st.nextPerk.n} · ${Math.max(0, st.nextPerk.at - st.boosts)} to go` : 'All perks unlocked'), statTile('user', 'Top boosters', String((st.topBoosters || []).length)));
-        box.append(tiles, chartCard('Overclock growth', st, 'o', colour, 'No overclocks yet — boost the server to start the line.'));
-        if ((st.topBoosters || []).length) box.append(peopleCard('Top boosters this month', st.topBoosters.map(b => ({ name: b.username, value: `${b.n} ✦` }))));
-    } else {
-        tiles.append(statTile('speaker', 'In voice now', String(st.voice || 0)), statTile('user', 'Members', String(st.members || 0)), statTile('chart', 'This week', fmtDur(st.weekVoice || 0)));
-        box.append(tiles, peopleCard('Most time in voice', (st.topVoice || []).map(v => ({ name: v.username, value: fmtDur(v.t || 0) })), 'No voice sessions this week yet.'));
-    }
+    tiles.append(
+        statTile('user', 'Members', st.members || 0),
+        statTile('user', 'Online now', `${st.online || 0}/${st.members || 0}`),
+        statTile('speaker', 'In voice', st.voice || 0),
+        statTile('chat', 'Messages this week', st.weekMsgs || 0),
+        statTile('bolt', 'Overclocks', st.boosts || 0),
+        statTile('chart', 'Perk tier', `${st.tier || 0}/6`)
+    );
+
+    const charts = h('div', 'sp-charts');
+    charts.append(
+        chartCard('Member growth', series30(st, 'm'), colour, 'No members yet — the chart fills in as people join.'),
+        chartCard('Messages per day', msgSeries(st), colour, 'No messages in the last 30 days.'),
+        chartCard('Overclock growth', series30(st, 'o'), colour, 'No overclocks yet — overclock the server to start the line.')
+    );
+
+    const boards = h('div', 'sp-boards');
+    boards.append(
+        peopleCard('Top boosters this month', (st.topBoosters || []).map(b => ({ name: b.username, value: `${b.n} ✦` })), 'No overclocks this month yet.'),
+        peopleCard('Most time in voice', (st.topVoice || []).map(v => ({ name: v.username, value: fmtDur(v.t || 0) })), 'No voice sessions yet.'),
+        peopleCard('Top chatters this week', (st.topChatters || []).map(c => ({ name: c.username, value: `${c.n} message${c.n === 1 ? '' : 's'}` })), 'No messages this week yet.')
+    );
 
     const foot = h('p', 'stat-foot');
-    foot.append(h('span', '', `Updated ${fmtTime(Math.floor(Date.now() / 1000))} · refreshes every 30s`));
-    box.append(foot);
+    foot.append(h('span', '', `Updated ${fmtTime(Math.floor(Date.now() / 1000))} · this page stands in for every old live-stats channel`));
+    box.append(head, tiles, charts, boards, foot);
 }
 
 function statTile(icon, label, value) {
@@ -53,7 +83,7 @@ function statTile(icon, label, value) {
 
 function cleanHex(c) { return /^#[0-9a-f]{6}$/i.test(String(c || '')) ? c : ''; }
 
-/* Fill the last 30 days, carrying the newest known value forward, so the line is continuous. */
+/* Fill the last 30 days, carrying the newest known value forward, so growth lines are continuous. */
 function series30(st, key) {
     const byDay = new Map((st.series || []).map(r => [r.d, Number(r[key]) || 0]));
     const out = [];
@@ -65,19 +95,25 @@ function series30(st, key) {
     return out;
 }
 
+/* Message counts are per day, so empty days are real zeros instead of carried values. */
+function msgSeries(st) {
+    const byDay = new Map((st.msgSeries || []).map(r => [r.d, Number(r.n) || 0]));
+    const out = [];
+    for (let d = st.day - 29; d <= st.day; d++) out.push({ d, v: byDay.get(d) || 0 });
+    return out;
+}
+
 function deltaLabel(st, key) {
     const pts = series30(st, key);
     const start = pts[0].v, end = pts[pts.length - 1].v, diff = end - start;
     return diff > 0 ? `+${diff}` : diff < 0 ? String(diff) : 'steady';
 }
 
-function chartCard(title, st, key, colour, empty) {
+function chartCard(title, pts, colour, empty) {
     const card = h('section', 'stat-card');
-    const pts = series30(st, key);
-    const has = (st.series || []).length > 0 && pts.some(p => p.v > 0);
     card.append(h('h3', '', title));
-    if (!has) { card.append(h('p', 'hint', empty)); return card; }
-    const wrap = h('div', 'spark-wrap'); wrap.innerHTML = sparkSVG(pts, colour, `${st.id}-${key}`);
+    if (!pts.some(p => p.v > 0)) { card.append(h('p', 'hint', empty)); return card; }
+    const wrap = h('div', 'spark-wrap'); wrap.innerHTML = sparkSVG(pts, colour, `${S.server.id}-${title.replace(/\W+/g, '')}`);
     const min = Math.min(...pts.map(p => p.v)), max = Math.max(...pts.map(p => p.v));
     const scale = h('div', 'spark-scale');
     scale.append(h('span', '', `${min}`), h('span', '', `${max}`));
