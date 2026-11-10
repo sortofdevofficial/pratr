@@ -1,9 +1,6 @@
 // The handler lives here; models, helpers and connection setup live in ../lib/core.js.
-const { mongoose, bcrypt, jwt, crypto, nowSeconds, onlineCut, statusOf, stOf, clientIp, geoOf, deviceOf, clientInfo, infoText, hit, DUMMY_HASH, CURRENT_SCHEMA_VERSION, ensureSchemaVersion, withV, connectDB, User, Pending, Session, Msg, Server, Channel, Voice, VStat, Signal, Log, Read, Meta, Friend, Invite, Boost, lg, VOICE_LIVE, vLive, endVoice, reapMyVoice, reapVoice, readKey, voiceRoom, shortCode, findInvite, sendOtp, nextId, createWithId, isAdmin, areFriends, isMember, srv, okImg, MONTH, plusOn, BOOST_PERKS, boostTier, SERVER_FONTS } = require('../lib/core');
-const ACCENTS = ['#ffd36b', '#ff8fa3', '#7ee2b8', '#7cc4ff', '#b99bff', '#ffab6b', '#5ee0d6', '#f0e9db', '#ff5a4e', '#f472d0', '#8ef58a', '#6ea8ff', '#ffe45e', '#c6a4ff', '#ff9f43', '#9be7ff'];
-// Colours are free-form hex, so people can glow in any shade they like. Values are stored in one canonical lowercase form.
-const isColour = (c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c);
-const cleanColour = (c) => isColour(c) ? c.toLowerCase() : '';
+const { mongoose, bcrypt, jwt, crypto, nowSeconds, onlineCut, statusOf, stOf, clientIp, geoOf, deviceOf, clientInfo, infoText, hit, DUMMY_HASH, CURRENT_SCHEMA_VERSION, ensureSchemaVersion, withV, connectDB, User, Pending, Session, Msg, Server, Channel, Voice, VStat, Signal, Log, Read, Meta, Friend, Invite, Boost, lg, VOICE_LIVE, vLive, endVoice, reapMyVoice, reapVoice, readKey, voiceRoom, shortCode, findInvite, sendOtp, nextId, createWithId, isAdmin, areFriends, isMember, srv, okImg, MONTH, plusOn, BOOST_PERKS, boostTier, SERVER_FONTS, ACCENTS, cleanColour } = require('../lib/core');
+const { overclockActions, migrateAction, voiceActions, OVERCLOCK_ACTIONS } = require('./actions');
 
 // Plus plans end on their own. Expiring and the monthly 2-boost grant are lazy: they run on the next
 // authenticated request, so no cron is needed. The cache keeps that to one extra read per user per minute.
@@ -109,11 +106,11 @@ module.exports = async function handler(req, res) {
     if (action === 'me') {
       await reapMyVoice(auth.userId);
       await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
-      const me = await User.findById(auth.userId).select('e n av b ps pl pe ng ub st sx ac pg vt mc').lean();
+      const me = await User.findById(auth.userId).select('e n av b ps pl pe ng ub st sx ac pg nf vt mc').lean();
       const now = nowSeconds();
       if (me.st && me.sx && me.sx <= now) { me.st = ''; me.sx = 0; await User.updateOne({ _id: auth.userId }, { $set: { st: '', sx: 0 } }); } // expired statuses clear themselves
       const plus = plusOn(me, now);
-      return res.status(200).json({ id: me._id, email: me.e, username: me.n, avatar: me.av || '', bio: plus ? (me.b || '') : (me.b || '').slice(0, 160), status: me.ps || 'online', plus, plusUntil: me.pe || 0, boosts: me.ub || 0, nextBoosts: plus ? (me.ng || 0) : 0, statusText: me.st || '', statusUntil: me.sx || 0, accent: plus ? (me.ac || '') : '', glow: plus ? (me.pg || '') : '', admin: isAdmin(me.e), voice: me.vt || 0, msgs: me.mc || 0 });
+      return res.status(200).json({ id: me._id, email: me.e, username: me.n, avatar: me.av || '', bio: plus ? (me.b || '') : (me.b || '').slice(0, 160), status: me.ps || 'online', plus, plusUntil: me.pe || 0, boosts: me.ub || 0, nextBoosts: plus ? (me.ng || 0) : 0, statusText: me.st || '', statusUntil: me.sx || 0, accent: plus ? (me.ac || '') : '', glow: plus ? (me.pg || '') : '', nameFont: plus ? (me.nf || '') : '', admin: isAdmin(me.e), voice: me.vt || 0, msgs: me.mc || 0 });
     }
 
     if (action === 'presence-set') {
@@ -128,7 +125,7 @@ module.exports = async function handler(req, res) {
       if (!uname) return res.status(400).json({ error: 'Username required.' });
       if (await User.exists({ n: uname, _id: { $ne: auth.userId } })) return res.status(400).json({ error: 'Username taken.' });
       if (!okImg(avatar ?? '')) return res.status(400).json({ error: 'Invalid image.' });
-      const old = await User.findById(auth.userId).select('n av b pl pe st sx ac pg').lean();
+      const old = await User.findById(auth.userId).select('n av b pl pe st sx ac pg nf').lean();
       const plus = plusOn(old);
       const now = nowSeconds();
       const cleanBio = String(bio || '').trim().slice(0, plus ? 400 : 160);
@@ -136,13 +133,14 @@ module.exports = async function handler(req, res) {
       const cleanSt = String(st || '').trim().slice(0, 60);
       const ttl = Math.round(Number(sx) || 0);
       const cleanSx = cleanSt && ttl > 0 ? now + Math.max(60, Math.min(365 * 86400, ttl)) : 0;
-      // Accent and profile glow stay Plus-only. Both accept any hex colour.
+      // Accent, glow and the profile name font stay Plus-only. Colours accept any hex.
       const cleanAc = plus ? (cleanColour(ac) || (ACCENTS.includes(ac) ? ac : '') || old.ac || '') : (old.ac || '');
       const cleanPg = plus ? (cleanColour(pg) || (ACCENTS.includes(pg) ? pg : '') || old.pg || '') : (old.pg || '');
-      await User.updateOne({ _id: auth.userId }, { n: uname, av: avatar || '', b: cleanBio, st: cleanSt, sx: cleanSx, ac: cleanAc, pg: cleanPg });
-      const diff = [old.n !== uname && `name ${old.n} → ${uname}`, (old.av || '') !== (avatar || '') && 'avatar changed', (old.b || '') !== cleanBio && 'bio changed', (old.st || '') !== cleanSt && `status “${cleanSt || 'cleared'}”`, (old.sx || 0) !== cleanSx && (cleanSx ? `status expires ${new Date(cleanSx * 1000).toISOString().slice(0, 16)}` : 'status never expires'), (old.ac || '') !== cleanAc && 'accent changed', (old.pg || '') !== cleanPg && 'profile glow changed'].filter(Boolean);
+      const cleanNf = plus && SERVER_FONTS.includes(String(font || '')) ? String(font || '') : (old.nf || '');
+      await User.updateOne({ _id: auth.userId }, { n: uname, av: avatar || '', b: cleanBio, st: cleanSt, sx: cleanSx, ac: cleanAc, pg: cleanPg, nf: cleanNf });
+      const diff = [old.n !== uname && `name ${old.n} → ${uname}`, (old.av || '') !== (avatar || '') && 'avatar changed', (old.b || '') !== cleanBio && 'bio changed', (old.st || '') !== cleanSt && `status “${cleanSt || 'cleared'}”`, (old.sx || 0) !== cleanSx && (cleanSx ? `status expires ${new Date(cleanSx * 1000).toISOString().slice(0, 16)}` : 'status never expires'), (old.ac || '') !== cleanAc && 'accent changed', (old.pg || '') !== cleanPg && 'profile glow changed', (old.nf || '') !== cleanNf && 'profile name style changed'].filter(Boolean);
       if (diff.length) await lg(0, 'profile', auth.userId, { x: diff.join(', ') });
-      return res.status(200).json({ username: uname, avatar: avatar || '', bio: cleanBio, statusText: cleanSt, statusUntil: cleanSx, accent: cleanAc, glow: cleanPg });
+      return res.status(200).json({ username: uname, avatar: avatar || '', bio: cleanBio, statusText: cleanSt, statusUntil: cleanSx, accent: cleanAc, glow: cleanPg, nameFont: cleanNf });
     }
 
     if (action === 'upload-sign') {
@@ -213,7 +211,7 @@ module.exports = async function handler(req, res) {
       if (other._id === auth.userId) return res.status(400).json({ error: "You can't add yourself." });
       const [x, y] = [auth.userId, other._id].sort((p, q2) => p - q2);
       const key = `${x}:${y}`;
-      const pair = (s) => ({ id: other._id, username: other.n, avatar: other.av || '', bio: plusOn(other) ? (other.b || '') : (other.b || '').slice(0, 160), status: statusOf(other), plus: plusOn(other), statusText: stOf(other), accent: plusOn(other) ? (other.ac || '') : '', glow: plusOn(other) ? (other.pg || '') : '', voice: other.vt || 0, msgs: other.mc || 0, s });
+      const pair = (s) => ({ id: other._id, username: other.n, avatar: other.av || '', bio: plusOn(other) ? (other.b || '') : (other.b || '').slice(0, 160), status: statusOf(other), plus: plusOn(other), statusText: stOf(other), accent: plusOn(other) ? (other.ac || '') : '', glow: plusOn(other) ? (other.pg || '') : '', nameFont: plusOn(other) ? (other.nf || '') : '', voice: other.vt || 0, msgs: other.mc || 0, s });
       const cur = await Friend.findById(key).lean();
       if (cur && cur.s === 'a') return res.status(400).json({ error: 'You are already friends.' });
       if (cur && cur.s === 'p') {
@@ -235,14 +233,14 @@ module.exports = async function handler(req, res) {
       const key = `${x}:${y}`;
       const doc = await Friend.findById(key).lean();
       if (!doc || doc.s !== 'p') return res.status(404).json({ error: 'No pending request.' });
-      const other = await User.findById(uid).select('n av b ls ps pl pe st ac vt mc').lean();
+      const other = await User.findById(uid).select('n av b ls ps pl pe st ac pg nf vt mc').lean();
       if (!other) return res.status(404).json({ error: 'User not found.' });
       if (action === 'friend-accept') {
         if (doc.by === auth.userId) return res.status(403).json({ error: 'That request is yours — waiting for them.' });
         await Friend.updateOne({ _id: key }, { $set: { s: 'a', r: nowSeconds() } });
         await lg(0, 'friend_accept', auth.userId, { u: uid });
         const plus = plusOn(other);
-        return res.status(200).json({ friend: { id: other._id, username: other.n, avatar: other.av || '', bio: plus ? (other.b || '') : (other.b || '').slice(0, 160), status: statusOf(other), plus, statusText: stOf(other), accent: plus ? (other.ac || '') : '', glow: plus ? (other.pg || '') : '', voice: other.vt || 0, msgs: other.mc || 0 } });
+        return res.status(200).json({ friend: { id: other._id, username: other.n, avatar: other.av || '', bio: plus ? (other.b || '') : (other.b || '').slice(0, 160), status: statusOf(other), plus, statusText: stOf(other), accent: plus ? (other.ac || '') : '', glow: plus ? (other.pg || '') : '', nameFont: plus ? (other.nf || '') : '', voice: other.vt || 0, msgs: other.mc || 0 } });
       }
       // Denying an incoming request and cancelling your own outgoing one are the same stored event, logged differently.
       await Friend.updateOne({ _id: key }, { $set: { s: 'd', r: nowSeconds() } });
@@ -314,9 +312,9 @@ module.exports = async function handler(req, res) {
     if (action === 'friends') {
       const docs = await Friend.find({ $or: [{ a: auth.userId }, { b: auth.userId }], s: { $in: ['a', 'p'] } }).lean();
       const others = docs.map(f => f.a === auth.userId ? f.b : f.a);
-      const users = await User.find({ _id: { $in: others } }).select('n av b ls ps pl pe st sx ac pg vt mc').lean();
+      const users = await User.find({ _id: { $in: others } }).select('n av b ls ps pl pe st sx ac pg nf vt mc').lean();
       const um = Object.fromEntries(users.map(u => [u._id, u]));
-      const row = (u, f) => { const plus = plusOn(u); return { id: u._id, username: u.n, avatar: u.av || '', bio: plus ? (u.b || '') : (u.b || '').slice(0, 160), status: statusOf(u), plus, statusText: stOf(u), accent: plus ? (u.ac || '') : '', glow: plus ? (u.pg || '') : '', voice: u.vt || 0, msgs: u.mc || 0, t: f.t || 0 }; };
+      const row = (u, f) => { const plus = plusOn(u); return { id: u._id, username: u.n, avatar: u.av || '', bio: plus ? (u.b || '') : (u.b || '').slice(0, 160), status: statusOf(u), plus, statusText: stOf(u), accent: plus ? (u.ac || '') : '', glow: plus ? (u.pg || '') : '', nameFont: plus ? (u.nf || '') : '', voice: u.vt || 0, msgs: u.mc || 0, t: f.t || 0 }; };
       const friends = [], incoming = [], outgoing = [];
       docs.forEach(f => {
         const u = um[f.a === auth.userId ? f.b : f.a];
@@ -388,8 +386,8 @@ module.exports = async function handler(req, res) {
       await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
       const server = await Server.findOne({ _id: Number(id), m: auth.userId }).lean();
       if (!server) return res.status(403).json({ error: 'Not a member.' });
-      const users = await User.find({ _id: { $in: server.m } }).select('n av b ls ps pl pe st sx ac pg vt mc').lean();
-      return res.status(200).json({ owner: server.o, members: users.map(u => { const plus = plusOn(u); return { id: u._id, username: u.n, avatar: u.av, bio: plus ? (u.b || '') : (u.b || '').slice(0, 160), status: statusOf(u), plus, statusText: stOf(u), accent: plus ? (u.ac || '') : '', glow: plus ? (u.pg || '') : '', online: statusOf(u) !== 'offline', voice: u.vt || 0, msgs: u.mc || 0 }; }) });
+      const users = await User.find({ _id: { $in: server.m } }).select('n av b ls ps pl pe st sx ac pg nf vt mc').lean();
+      return res.status(200).json({ owner: server.o, members: users.map(u => { const plus = plusOn(u); return { id: u._id, username: u.n, avatar: u.av, bio: plus ? (u.b || '') : (u.b || '').slice(0, 160), status: statusOf(u), plus, statusText: stOf(u), accent: plus ? (u.ac || '') : '', glow: plus ? (u.pg || '') : '', nameFont: plus ? (u.nf || '') : '', online: statusOf(u) !== 'offline', voice: u.vt || 0, msgs: u.mc || 0 }; }) });
     }
 
     if (action === 'channel-delete') {
@@ -426,12 +424,12 @@ module.exports = async function handler(req, res) {
       const rpIds = [...new Set(msgs.map(m => m.rp).filter(Boolean))];
       const parents = rpIds.length ? await Msg.find({ _id: { $in: rpIds }, d: { $ne: 1 } }).select('_id a m').lean() : [];
       const parentMap = Object.fromEntries(parents.map(p => [p._id, p]));
-      const authors = await User.find({ _id: { $in: [...new Set([...msgs.map(m => m.a), ...parents.map(p => p.a)])] } }).select('n av pl pe ac pg').lean();
+      const authors = await User.find({ _id: { $in: [...new Set([...msgs.map(m => m.a), ...parents.map(p => p.a)])] } }).select('n av pl pe ac pg nf').lean();
       const people = Object.fromEntries(authors.map(u => [u._id, u]));
       return res.status(200).json({
         messages: msgs.reverse().map(m => {
           const p = people[m.a], plus = plusOn(p), par = parentMap[m.rp];
-          return { id: m._id, mine: m.a === auth.userId, text: m.m, t: m.t, rx: Object.entries(m.rx || {}).map(([e, a]) => ({ e, n: a.length, me: a.includes(auth.userId) })).filter(r => r.n), reply: par ? { id: par._id, username: (people[par.a] || {}).n || 'Unknown', text: String(par.m || '').slice(0, 120) } : null, author: { id: m.a, username: p?.n || 'Unknown', avatar: p?.av, plus, accent: plus ? (p?.ac || '') : '', glow: plus ? (p?.pg || '') : '' } };
+          return { id: m._id, mine: m.a === auth.userId, text: m.m, t: m.t, rx: Object.entries(m.rx || {}).map(([e, a]) => ({ e, n: a.length, me: a.includes(auth.userId) })).filter(r => r.n), reply: par ? { id: par._id, username: (people[par.a] || {}).n || 'Unknown', text: String(par.m || '').slice(0, 120) } : null, author: { id: m.a, username: p?.n || 'Unknown', avatar: p?.av, plus, accent: plus ? (p?.ac || '') : '', glow: plus ? (p?.pg || '') : '', nameFont: plus ? (p?.nf || '') : '' } };
         })
       });
     }
@@ -440,7 +438,7 @@ module.exports = async function handler(req, res) {
       const isServer = kind === 'server';
       const [okRate, me, member, chanOk, friendOk, srvPerks] = await Promise.all([
         hit(`msg:${auth.userId}`, 20, 10),
-        User.findById(auth.userId).select('n av pl pe ac pg').lean(),
+        User.findById(auth.userId).select('n av pl pe ac pg nf').lean(),
         isServer ? isMember(id, auth.userId) : true,
         isServer ? Channel.exists({ _id: Number(channelId), s: Number(id), k: { $ne: 'v' }, d: { $ne: 1 } }) : true,
         isServer ? true : areFriends(auth.userId, Number(id)),
@@ -474,7 +472,7 @@ module.exports = async function handler(req, res) {
           reply = { id: parent._id, username: par?.n || 'Unknown', text: String(parent.m || '').slice(0, 120) };
         }
       }
-      return res.status(200).json({ message: { id: msg._id, mine: true, text: msg.m, t: msg.t, rx: [], reply, author: { id: auth.userId, username: me?.n || 'You', avatar: me?.av, plus, accent: plus ? (me?.ac || '') : '', glow: plus ? (me?.pg || '') : '' } } });
+      return res.status(200).json({ message: { id: msg._id, mine: true, text: msg.m, t: msg.t, rx: [], reply, author: { id: auth.userId, username: me?.n || 'You', avatar: me?.av, plus, accent: plus ? (me?.ac || '') : '', glow: plus ? (me?.pg || '') : '', nameFont: plus ? (me?.nf || '') : '' } } });
     }
 
     // ---------- read state (seen/unseen) ----------
@@ -659,98 +657,7 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ username: target.n, plus: true, until: pe, days: len, boosts: (target.ub || 0) + (active ? 0 : 2), granted: active ? 0 : 2 });
     }
 
-    if (action === 'flare-grant') {
-      // Admins can hand out (or take back) any number of overclocks. They are the same currency Plus grants every month.
-      const adm = await User.findById(auth.userId).select('e').lean();
-      if (!adm || !isAdmin(adm.e)) return res.status(403).json({ error: 'Admins only.' });
-      const qn = String(username || '').trim();
-      if (!qn) return res.status(400).json({ error: 'Username or email required.' });
-      const target = await User.findOne({ $or: [{ n: qn }, { e: qn.toLowerCase() }] }).select('n ub').lean();
-      if (!target) return res.status(404).json({ error: 'User not found.' });
-      const n = Math.round(Number(count) || 0);
-      if (!n) return res.status(400).json({ error: 'Enter how many overclocks to give or take.' });
-      const next = Math.max(0, Math.min(1000000, (target.ub || 0) + Math.max(-1000000, Math.min(1000000, n))));
-      await User.updateOne({ _id: target._id }, { $set: { ub: next } });
-      await lg(0, 'boost_grant', auth.userId, { u: target._id, x: `${n > 0 ? '+' : ''}${next - (target.ub || 0)} overclocks (admin)` });
-      return res.status(200).json({ username: target.n, boosts: next, delta: next - (target.ub || 0) });
-    }
-
-    if (action === 'boost-info') {
-      const sid = Number(id);
-      if (!(await isMember(sid, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
-      const [server, me, rows, grants] = await Promise.all([
-        Server.findById(sid).select('o n bc bp sc sf bn lg em sk').lean(),
-        User.findById(auth.userId).select('ub pl pe ng').lean(),
-        Boost.aggregate([{ $match: { s: sid } }, { $group: { _id: '$u', n: { $sum: { $ifNull: ['$n', 1] } }, t: { $max: '$t' } } }, { $sort: { t: -1 } }, { $limit: 30 }]),
-        Log.find({ a: auth.userId, ty: 'boost_grant' }).sort({ _id: -1 }).limit(20).lean()
-      ]);
-      if (!server) return res.status(404).json({ error: 'Server not found.' });
-      const boosters = await User.find({ _id: { $in: rows.map(r => r._id) } }).select('n').lean();
-      const nm = Object.fromEntries(boosters.map(u => [u._id, u.n]));
-      const plus = plusOn(me);
-      return res.status(200).json({
-        server: server.n, owner: server.o, boosts: server.bc || 0, tier: boostTier(server.bc), perks: server.bp || [], accent: server.sc || '', font: server.sf || '',
-        banner: server.bn || '', logo: server.lg || '', emoji: server.em || [], stickers: server.sk || [],
-        available: BOOST_PERKS, mine: me.ub || 0, plus, nextBoosts: plus ? (me.ng || 0) : 0,
-        history: rows.map(r => ({ t: r.t, by: nm[r._id] || 'someone', n: r.n })),
-        grants: grants.map(l => ({ t: l.t, x: l.x }))
-      });
-    }
-
-    if (action === 'server-boost') {
-      const sid = Number(id);
-      if (!(await isMember(sid, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
-      const server = await Server.findById(sid).select('n').lean();
-      if (!server) return res.status(404).json({ error: 'Server not found.' });
-      const adm = await User.findById(auth.userId).select('e').lean();
-      const max = adm && isAdmin(adm.e) ? 10000 : 10;
-      const amount = Math.max(1, Math.min(max, Math.round(Number(count) || 1)));
-      const spent = await User.findOneAndUpdate({ _id: auth.userId, ub: { $gte: amount } }, { $inc: { ub: -amount } }, { new: true }).select('ub').lean();
-      if (!spent) return res.status(400).json({ error: 'You do not have enough overclocks.' });
-      try {
-        await createWithId(Boost, { u: auth.userId, s: sid, n: amount }); // one row per batch, not per click
-        const agg = await Boost.aggregate([{ $match: { s: sid } }, { $group: { _id: null, t: { $sum: { $ifNull: ['$n', 1] } } } }]);
-        const total = agg.length ? agg[0].t : 0;
-        await Server.updateOne({ _id: sid }, { $set: { bc: total } });
-        const burst = await Log.findOne({ s: sid, ty: 'server_boost', a: auth.userId, t: { $gte: nowSeconds() - 600 } }).sort({ _id: -1 }).lean();
-        const sum = (burst ? burst.d || 0 : 0) + amount;
-        if (burst) await Log.updateOne({ _id: burst._id }, { $set: { t: nowSeconds(), d: sum, x: `+${sum} overclock${sum === 1 ? '' : 's'}` } });
-        else await lg(sid, 'server_boost', auth.userId, { d: amount, x: `+${amount} overclock${amount === 1 ? '' : 's'}` });
-        const fresh = await Server.findById(sid).select('bc bp sc sf bn lg em sk').lean();
-        return res.status(200).json({ ok: true, boosts: total, tier: boostTier(total), left: spent.ub, unlocked: BOOST_PERKS.filter(p => total >= p.at).map(p => p.k), perks: fresh.bp || [], accent: fresh.sc || '', font: fresh.sf || '', banner: fresh.bn || '', logo: fresh.lg || '', emoji: fresh.em || [], stickers: fresh.sk || [] });
-      } catch (e) {
-        await User.updateOne({ _id: auth.userId }, { $inc: { ub: amount } }); // never charge for an overclock that was not stored
-        throw e;
-      }
-    }
-
-    if (action === 'server-perk') {
-      const server = await Server.findOne({ _id: Number(id), o: auth.userId }).select('n bc bp sc').lean();
-      if (!server) return res.status(403).json({ error: 'Only the owner can change server perks.' });
-      const def = BOOST_PERKS.find(p => p.k === String(perk || ''));
-      if (!def) return res.status(400).json({ error: 'Unknown perk.' });
-      if ((server.bc || 0) < def.at) return res.status(400).json({ error: `This perk unlocks at ${def.at} overclocks.` });
-      const yes = on !== false;
-      const update = yes ? { $addToSet: { bp: def.k } } : { $pull: { bp: def.k } };
-      if (def.k === 'accent') {
-        const col = cleanColour(colour) || (ACCENTS.includes(colour) ? colour : '');
-        if (yes && !col) return res.status(400).json({ error: 'Pick an accent colour.' });
-        update.$set = { sc: yes ? col : '', sf: yes && SERVER_FONTS.includes(String(font || '')) ? String(font || '') : '' };
-      }
-      if (!yes && (def.k === 'banner' || def.k === 'logo')) update.$set = def.k === 'banner' ? { bn: '' } : { lg: '' }; // locked art must not keep showing
-      await Server.updateOne({ _id: server._id }, update);
-      await lg(server._id, 'server_perk', auth.userId, { x: `${def.k} ${yes ? 'enabled' : 'disabled'}${def.k === 'accent' && yes ? ` (${update.$set.sc})` : ''}` });
-      const fresh = await Server.findById(server._id).lean();
-      return res.status(200).json({ server: srv(fresh) });
-    }
-
-    if (action === 'boost-history') {
-      const logs = await Log.find({ ty: { $in: ['plus_grant', 'plus_expire', 'boost_grant', 'server_boost'] }, $or: [{ a: auth.userId }, { u: auth.userId }] }).sort({ _id: -1 }).limit(30).lean();
-      const sids = [...new Set(logs.filter(l => l.s > 0).map(l => l.s))];
-      const servers = sids.length ? await Server.find({ _id: { $in: sids } }).select('n').lean() : [];
-      const nm = Object.fromEntries(servers.map(s => [s._id, s.n]));
-      return res.status(200).json({ history: logs.map(l => ({ t: l.t, ty: l.ty, x: l.x, server: nm[l.s] || '' })) });
-    }
+    if (OVERCLOCK_ACTIONS.has(action)) return overclockActions({ body, auth, res });
 
     if (action === 'activity') { // admin: everything one account has done (logins, profile edits, friends, status, plus)
       const adm = await User.findById(auth.userId).select('e').lean();
@@ -763,142 +670,10 @@ module.exports = async function handler(req, res) {
     }
 
     // ---------- versioned migrations (admin, safe to call again) ----------
-    if (action === 'migrate') {
-      const adm = await User.findById(auth.userId).select('e').lean();
-      if (!adm || !isAdmin(adm.e)) return res.status(403).json({ error: 'Admins only.' });
-      const [m1, m2, m3, m4] = await Promise.all([Meta.findById('migrate1').lean(), Meta.findById('migrate2').lean(), Meta.findById('migrate3').lean(), Meta.findById('migrate4').lean()]);
-      if (m1 && m1.v === 1 && m2 && m2.v === 1 && m3 && m3.v === 1 && m4 && m4.v === 1) return res.status(200).json({ ok: true, already: true, at: m4.at });
-      let vstats = 0, vtSet = 0, mcSet = 0, defaults = 0;
-      if (!(m1 && m1.v === 1)) {
-        try { await Meta.create({ _id: 'migrate1', v: 0, at: 0 }); } catch (e) { if (e.code !== 11000) throw e; }
-        // a. Organized voice totals from the session history. $setOnInsert: rows already written by live sessions are left alone.
-        const voiceAgg = await Log.aggregate([{ $match: { ty: 'voice_leave', s: { $gt: 0 } } }, { $group: { _id: { s: '$s', u: '$a' }, t: { $sum: '$d' }, n: { $sum: 1 }, last: { $max: '$t' } } }]);
-        for (const r of voiceAgg) {
-          const x = await VStat.updateOne({ _id: `${r._id.s}:${r._id.u}` }, { $setOnInsert: { s: r._id.s, u: r._id.u, t: r.t, n: r.n, last: r.last } }, { upsert: true });
-          vstats += x.upsertedCount || 0;
-        }
-        // b. Per-user counters, only where missing or still zero so live counts are never overwritten.
-        const vtAgg = await VStat.aggregate([{ $group: { _id: '$u', t: { $sum: '$t' } } }]);
-        for (const r of vtAgg) vtSet += (await User.updateOne({ _id: r._id, $or: [{ vt: { $exists: false } }, { vt: 0 }] }, { $set: { vt: r.t } })).modifiedCount;
-        const mcAgg = await Msg.aggregate([{ $group: { _id: '$a', n: { $sum: 1 } } }]);
-        for (const r of mcAgg) mcSet += (await User.updateOne({ _id: r._id, $or: [{ mc: { $exists: false } }, { mc: 0 }] }, { $set: { mc: r.n } })).modifiedCount;
-        // c. Defaults for old rows.
-        const defs = await User.updateMany({ $or: [{ pl: { $exists: false } }, { vt: { $exists: false } }, { mc: { $exists: false } }] }, [{ $set: { pl: { $ifNull: ['$pl', false] }, vt: { $ifNull: ['$vt', 0] }, mc: { $ifNull: ['$mc', 0] } } }], { updatePipeline: true });
-        defaults = defs.modifiedCount;
-        // d. Indexes for the fast paths.
-        await Promise.all([User.createIndexes(), Msg.createIndexes(), Server.createIndexes(), Channel.createIndexes(), Voice.createIndexes(), VStat.createIndexes(), Signal.createIndexes(), Log.createIndexes(), Read.createIndexes()]);
-        await Meta.updateOne({ _id: 'migrate1' }, { v: 1, at: nowSeconds() });
-      }
-      // v3: friends written by the old auto-accept code have no requester/time fields. They stay accepted, marked as "before tracking".
-      const fr = await Friend.updateMany({ $or: [{ by: { $exists: false } }, { t: { $exists: false } }, { r: { $exists: false } }] }, [{ $set: { by: { $ifNull: ['$by', 0] }, t: { $ifNull: ['$t', 0] }, r: { $ifNull: ['$r', 0] }, s: { $ifNull: ['$s', 'a'] } } }], { updatePipeline: true });
-      await Friend.createIndexes();
-      if (!(m2 && m2.v === 1)) {
-        try { await Meta.create({ _id: 'migrate2', v: 0, at: 0 }); } catch (e) { if (e.code !== 11000) throw e; }
-        await Meta.updateOne({ _id: 'migrate2' }, { v: 1, at: nowSeconds() });
-      }
-      // v4: time-limited Plus and permanent boosts. Only missing values are filled; existing dates and credits are never touched.
-      let planDefaults = 0, legacyPlans = 0, serverDefaults = 0;
-      if (!(m3 && m3.v === 1)) {
-        try { await Meta.create({ _id: 'migrate3', v: 0, at: 0 }); } catch (e) { if (e.code !== 11000) throw e; }
-        const now = nowSeconds();
-        const du = await User.updateMany(
-          { $or: [{ pe: { $exists: false } }, { ng: { $exists: false } }, { ub: { $exists: false } }] },
-          [{ $set: { pe: { $ifNull: ['$pe', 0] }, ng: { $ifNull: ['$ng', 0] }, ub: { $ifNull: ['$ub', 0] } } }],
-          { updatePipeline: true }
-        );
-        planDefaults = du.modifiedCount;
-        // Legacy rows were "Plus forever"; they now get the standard month, starting today, plus that month's 2 boosts, once.
-        const legacy = await User.updateMany(
-          { pl: true, $or: [{ pe: { $exists: false } }, { pe: 0 }] },
-          [{ $set: { pe: now + MONTH, ng: now + MONTH, ub: { $add: [{ $ifNull: ['$ub', 0] }, 2] } } }],
-          { updatePipeline: true }
-        );
-        legacyPlans = legacy.modifiedCount;
-        const ds = await Server.updateMany(
-          { $or: [{ bc: { $exists: false } }, { bp: { $exists: false } }, { sc: { $exists: false } }] },
-          [{ $set: { bc: { $ifNull: ['$bc', 0] }, bp: { $ifNull: ['$bp', []] }, sc: { $ifNull: ['$sc', ''] } } }],
-          { updatePipeline: true }
-        );
-        serverDefaults = ds.modifiedCount;
-        await Promise.all([User.createIndexes(), Server.createIndexes(), Boost.createIndexes()]);
-        await Meta.updateOne({ _id: 'migrate3' }, { v: 1, at: now });
-      }
-      // v5: statuses for everyone, profile glow, and server banner/logo/custom emoji/sticker fields.
-      let statusDefaults = 0, serverAssets = 0;
-      if (!(m4 && m4.v === 1)) {
-        try { await Meta.create({ _id: 'migrate4', v: 0, at: 0 }); } catch (e) { if (e.code !== 11000) throw e; }
-        statusDefaults = (await User.updateMany(
-          { $or: [{ sx: { $exists: false } }, { pg: { $exists: false } }] },
-          [{ $set: { sx: { $ifNull: ['$sx', 0] }, pg: { $ifNull: ['$pg', ''] } } }],
-          { updatePipeline: true }
-        )).modifiedCount;
-        serverAssets = (await Server.updateMany(
-          { $or: [{ bn: { $exists: false } }, { lg: { $exists: false } }, { em: { $exists: false } }, { sk: { $exists: false } }] },
-          [{ $set: { bn: { $ifNull: ['$bn', ''] }, lg: { $ifNull: ['$lg', ''] }, em: { $ifNull: ['$em', []] }, sk: { $ifNull: ['$sk', []] } } }],
-          { updatePipeline: true }
-        )).modifiedCount;
-        await Meta.updateOne({ _id: 'migrate4' }, { v: 1, at: nowSeconds() });
-      }
-      await lg(0, 'migrate', auth.userId, { x: `vstats ${vstats}, vt ${vtSet}, mc ${mcSet}, friends ${fr.modifiedCount}, plans ${legacyPlans}, servers ${serverDefaults}, statuses ${statusDefaults}, assets ${serverAssets}` });
-      return res.status(200).json({ ok: true, vstats, vtBackfilled: vtSet, mcBackfilled: mcSet, defaults, friendsBackfilled: fr.modifiedCount, planDefaults, legacyPlans, serverDefaults, statusDefaults, serverAssets });
-    }
+    if (action === 'migrate') return migrateAction({ body, auth, res });
 
     // ---------- voice ----------
-    if (action === 'voice-ice') {
-      const ice = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
-      if (process.env.TURN_URL) ice.push({ urls: String(process.env.TURN_URL).split(','), username: process.env.TURN_USER || '', credential: process.env.TURN_PASS || '' });
-      return res.status(200).json({ iceServers: ice });
-    }
-
-    if (action === 'voice-join') {
-      if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
-      const ch = await Channel.findOne({ _id: Number(channelId), s: Number(id), k: 'v', d: { $ne: 1 } }).lean();
-      if (!ch) return res.status(404).json({ error: 'Voice channel not found.' });
-      await reapVoice(ch.s);
-      const prev = await Voice.findOneAndDelete({ _id: auth.userId }); if (prev) await endVoice(prev, prev.ts > vLive() ? undefined : prev.ts); // switching channels closes the old session
-      await Signal.deleteMany({ $or: [{ to: auth.userId }, { from: auth.userId }] });
-      await lg(ch.s, 'voice_join', auth.userId, { ch: ch._id, cn: ch.n });
-      await Voice.updateOne({ _id: auth.userId }, { s: ch.s, ch: ch._id, ts: nowSeconds(), j: Date.now(), mu: !!mu, df: !!df }, { upsert: true });
-      await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
-      return res.status(200).json({ peers: await voiceRoom(ch.s, ch._id) });
-    }
-
-    if (action === 'voice-sync') {
-      const v = await Voice.findById(auth.userId).lean();
-      if (!v) return res.status(404).json({ error: 'Not in voice.' });
-      if (!!v.mu !== !!mu || !!v.df !== !!df) await lg(v.s, 'voice_state', auth.userId, { ch: v.ch, x: df ? 'deafened' : mu ? 'muted' : 'unmuted' });
-      await Voice.updateOne({ _id: auth.userId }, { ts: nowSeconds(), mu: !!mu, df: !!df });
-      await User.updateOne({ _id: auth.userId }, { ls: nowSeconds() });
-      const sigs = await Signal.find({ to: auth.userId, x: { $gt: nowSeconds() } }).sort({ _id: 1 }).limit(200).lean();
-      await Signal.deleteMany({ to: auth.userId, $or: [{ _id: { $in: sigs.map(x => x._id) } }, { x: { $lte: nowSeconds() } }] });
-      return res.status(200).json({ peers: await voiceRoom(v.s, v.ch), signals: sigs.map(x => ({ from: x.from, sig: x.d })) });
-    }
-
-    if (action === 'voice-signal') {
-      const [a, b] = await Promise.all([Voice.findById(auth.userId).lean(), Voice.findById(Number(to)).lean()]);
-      if (!a || !b || a.ch !== b.ch || a.s !== b.s || b.ts <= vLive()) return res.status(404).json({ error: 'Peer is not in your channel.' });
-      const d = String(sig || '');
-      if (!d || d.length > 20000) return res.status(400).json({ error: 'Bad signal.' });
-      await Signal.create({ to: b._id, from: auth.userId, d, x: nowSeconds() + 60 });
-      return res.status(200).json({ ok: true });
-    }
-
-    if (action === 'voice-leave') {
-      const gone = await Voice.findOneAndDelete({ _id: auth.userId }); if (gone) await endVoice(gone);
-      await Signal.deleteMany({ $or: [{ to: auth.userId }, { from: auth.userId }] });
-      return res.status(200).json({ ok: true });
-    }
-
-    if (action === 'voice-list') {
-      if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
-      await reapVoice(Number(id));
-      const vs = await Voice.find({ s: Number(id), ts: { $gt: vLive() } }).lean();
-      const us = await User.find({ _id: { $in: vs.map(v => v._id) } }).select('n av').lean();
-      const m = Object.fromEntries(us.map(u => [u._id, u]));
-      const out = {};
-      vs.filter(v => m[v._id]).forEach(v => (out[v.ch] = out[v.ch] || []).push({ id: v._id, username: m[v._id].n, avatar: m[v._id].av || '', mu: !!v.mu, df: !!v.df, j: v.j || 0 }));
-      return res.status(200).json({ voice: out });
-    }
+    if (action.startsWith('voice-')) return voiceActions({ body, auth, res });
 
     return res.status(400).json({ error: 'Invalid action.' });
   } catch (err) {

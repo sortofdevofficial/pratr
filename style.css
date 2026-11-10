@@ -180,7 +180,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--coral); box-shad
 .menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border-radius: 8px; text-align: left; font-size: 14px; color: #d8d2c4; }
 .menu button:hover { background: var(--bone); color: var(--navy); } .menu button.danger { color: var(--danger); } .menu button.danger:hover { background: var(--coral); color: #fff; }
 .menu hr { border: 0; height: 1px; background: #25375c; margin: 5px 4px; }
-.modal { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(4, 8, 18, .75); backdrop-filter: blur(3px); animation: fade .15s; }
+.modal { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(4, 8, 18, .75); animation: fade .15s; }
 .modal-card { position: relative; width: 100%; max-width: 420px; background: var(--bg2); border: 1px solid #25375c; border-radius: 18px; padding: 26px; box-shadow: 0 30px 80px rgba(0, 0, 0, .6); animation: pop .18s; }
 .modal-card h2 { margin: 0 0 6px; font-size: 20px; }
 .modal-x { position: absolute; top: 14px; right: 14px; width: 30px; height: 30px; border-radius: 8px; color: var(--mut); font-size: 20px; line-height: 1; } .modal-x:hover { background: var(--bg4); color: #fff; }
@@ -416,8 +416,7 @@ body { background: radial-gradient(1200px 700px at -10% -10%, #10203f 0%, transp
 .nav-item.active, .dm-item.active, .ch-item.active { background: linear-gradient(90deg, rgba(255,90,78,.14), rgba(255,90,78,.02)); }
 #side-title { background: linear-gradient(90deg, var(--bone), #cfc7b0); -webkit-background-clip: text; background-clip: text; color: transparent; letter-spacing: .01em; }
 .btn.primary { background: linear-gradient(135deg, var(--coral), #ff7f63); }
-.btn, .icon-btn, .rail-btn, .ch-item, .dm-item, .nav-item { will-change: transform; }
-.modal-card { box-shadow: 0 40px 90px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.04); backdrop-filter: blur(6px); animation: pop .16s cubic-bezier(.2,.9,.3,1.1); }
+.modal-card { box-shadow: 0 40px 90px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.04); animation: pop .16s cubic-bezier(.2,.9,.3,1.1); }
 .modal-card.wide { max-width: 640px; }
 
 /* ---------- top loading bar (instant feedback, no blank waits) ---------- */
@@ -476,17 +475,8 @@ input.colour-input:disabled { cursor: not-allowed; }
   .modal-card, .modal-card.wide { max-width: 100%; }
 }
 
-/* ---- Plus profile glow: any colour, applied through --pg ---- */
-@keyframes glowPulse {
-  0%, 100% { box-shadow: 0 0 0 2px var(--pg, #ffd36b), 0 0 16px -2px var(--pg, #ffd36b); }
-  50%      { box-shadow: 0 0 0 3px var(--pg, #ffd36b), 0 0 30px 2px var(--pg, #ffd36b); }
-}
-@keyframes cardGlow {
-  0%, 100% { box-shadow: 0 0 0 1px var(--pg, #ffd36b), 0 0 26px -8px var(--pg, #ffd36b); }
-  50%      { box-shadow: 0 0 0 2px var(--pg, #ffd36b), 0 0 48px -4px var(--pg, #ffd36b); }
-}
-.ava.glow { box-shadow: 0 0 0 2px var(--pg, #ffd36b), 0 0 16px -2px var(--pg, #ffd36b); animation: glowPulse 2.6s ease-in-out infinite; }
-.profile-card.glow { border-color: var(--pg, #ffd36b); animation: cardGlow 3.4s ease-in-out infinite; }
+/* ---- Plus profile glow: the card glows, never the avatar ---- */
+.profile-card.glow { border-color: var(--pg, #ffd36b); box-shadow: 0 0 0 1px var(--pg, #ffd36b), 0 0 22px -10px var(--pg, #ffd36b); }
 .friend-card.glow { border-color: var(--pg, #ffd36b); box-shadow: 0 0 22px -10px var(--pg, #ffd36b); }
 .dmcard.glow { box-shadow: inset 3px 0 0 var(--pg, #ffd36b); }
 
@@ -671,7 +661,7 @@ input:focus, textarea:focus, select:focus { border-color: #5865f2; box-shadow: n
 #side-title, #chat-name, .topbar h1 { text-shadow: 0 1px 3px rgba(0, 0, 0, .8); }
 
 /* ---- Plus name style ---- */
-.plus-name { font-weight: 800; letter-spacing: .01em; text-shadow: 0 0 12px currentColor; }
+.plus-name { font-weight: 800; letter-spacing: .01em; }
 
 /* ---- profile glow: whole card, and the DM side panel ---- */
 .user-card { max-width: 380px; padding: 0 0 20px; overflow: hidden; }
@@ -687,12 +677,8 @@ input:focus, textarea:focus, select:focus { border-color: #5865f2; box-shadow: n
 .uc-bio { margin: 12px 18px 0; color: var(--txt); font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .uc-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 16px 18px 0; }
 .uc-actions .btn { flex: 1; white-space: nowrap; }
-.user-card.glow { border-color: var(--pg, #5865f2); animation: cardGlow 3.2s ease-in-out infinite; }
-.dmcard.glow { border-left-color: var(--pg, #5865f2); animation: sideGlow 3.2s ease-in-out infinite; }
-@keyframes sideGlow {
-  0%, 100% { box-shadow: inset 3px 0 0 var(--pg, #5865f2), -12px 0 26px -18px var(--pg, #5865f2); }
-  50%      { box-shadow: inset 3px 0 0 var(--pg, #5865f2), -18px 0 46px -12px var(--pg, #5865f2); }
-}
+.user-card.glow { border-color: var(--pg, #5865f2); box-shadow: 0 24px 70px rgba(0, 0, 0, .55), 0 0 0 2px var(--pg, #5865f2), 0 0 30px -6px var(--pg, #5865f2); }
+.dmcard.glow { border-left-color: var(--pg, #5865f2); box-shadow: inset 3px 0 0 var(--pg, #5865f2); }
 .mem, .friend-card, .dmcard, .msg .gutter .ava { cursor: pointer; }
 
 /* ---- @here / @everyone member list ---- */
@@ -708,6 +694,7 @@ input:focus, textarea:focus, select:focus { border-color: #5865f2; box-shadow: n
 .colour-btn { position: relative; width: 26px; height: 26px; flex: none; border-radius: 50%; display: grid; place-items: center; cursor: pointer; overflow: hidden;
   background: conic-gradient(#f23f43, #f0b232, #3ba55d, #00a8fc, #5865f2, #eb459e, #f23f43); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, .3); }
 .colour-btn .ic { width: 14px; height: 14px; color: #fff; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .6)); pointer-events: none; }
+.colour-btn .pick-emoji { font-size: 15px; line-height: 1; pointer-events: none; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .6)); }
 .colour-btn input.colour-input.mini { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; padding: 0; border: 0; cursor: pointer; }
 .hexinput { width: 96px; height: 32px; padding: 0 8px; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12.5px; border-radius: 8px; text-transform: lowercase; }
 .font-label { flex-basis: 100%; color: var(--dim); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }

@@ -284,9 +284,10 @@
         <label class="field hidden" id="status-custom-wrap"><span>Custom hours</span><input id="status-custom" type="number" min="1" max="8760" value="12" inputmode="numeric"></label>
       </div>
       <p class="hint" id="status-expiry"></p>
-      <div class="field"><span>Profile glow <em class="badge plus" id="glow-plus">✦ Plus</em></span><div class="accents" id="glow-pick"></div><input type="color" id="glow-custom" class="colour-input" value="#ffd36b" title="Pick any glow colour"></div>
-      <div class="field"><span>Accent colour <em class="badge plus" id="ac-plus">✦ Plus</em></span><div class="accents" id="accent-pick"></div></div>
-      <p class="hint hidden" id="plus-lock">A glowing profile card, a custom accent colour and a 400-character bio are Pratr Plus features. Your status, its timer and every other option are free for everyone.</p>
+      <div class="field"><span>Profile glow <em class="badge plus" id="glow-plus">✦ Plus</em></span><div class="accents" id="glow-pick"></div><div class="accent-tools" id="glow-tools"></div></div>
+      <div class="field"><span>Accent colour <em class="badge plus" id="ac-plus">✦ Plus</em></span><div class="accents" id="accent-pick"></div><div class="accent-tools" id="accent-tools"></div></div>
+      <div class="field"><span>Name style <em class="badge plus" id="font-plus">✦ Plus</em></span><div class="font-pick" id="name-font-pick"></div><p class="hint">Changes how your name looks on your profile card, not your username.</p></div>
+      <p class="hint hidden" id="plus-lock">A glowing profile card, a custom accent and name style, and a 400-character bio are Pratr Plus features. Your status, its timer and every other option are free for everyone.</p>
       <label class="dev-row"><input type="checkbox" id="dev-toggle"><span><strong>Developer mode</strong><small>Right-click users, channels, servers and messages to copy their IDs.</small></span></label>
       <p class="msg-err" id="profile-msg"></p>
       <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>
@@ -408,7 +409,10 @@
 <script src="/emoji-names.js"></script>
 <script src="/emoji-img.js"></script>
 <script src="/app.js"></script>
-<script src="/ui.js"></script>
+<script src="/app-extra.js"></script>
 <script src="/voice.js"></script>
+<script src="/ui.js"></script>
+<script src="/ui-emoji.js"></script>
+<script src="/ui-profile.js"></script>
 </body>
 </html>
