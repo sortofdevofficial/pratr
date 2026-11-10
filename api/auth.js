@@ -44,7 +44,7 @@ module.exports = async function handler(req, res) {
     if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16) return res.status(500).json({ error: 'Server is not configured.' });
     await connectDB();
     const tooMany = () => res.status(429).json({ error: 'Too many attempts. Please wait a bit and try again.' });
-    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q, status, ck, to, sig, mu, df, on, npw, lastId, afterId, st, ac, days, count, perk, colour, sx, pg, field } = body;
+    const { action, email, password, otp, id, username, text, kind, name, channelId, category, channelName, code, avatar, icon, bio, desc, pub, ttl, q, status, ck, to, sig, mu, df, on, npw, lastId, afterId, st, ac, days, count, perk, colour, sx, pg, field, replyId } = body;
 
     if (action === 'register') {
       const key = String(email || '').trim().toLowerCase();
@@ -425,12 +425,15 @@ module.exports = async function handler(req, res) {
       }
       const after = Number(afterId) || 0;
       const msgs = await Msg.find({ ...match, ...(after ? { _id: { $gt: after } } : {}), d: { $ne: 1 } }).sort({ _id: -1 }).limit(100).lean();
-      const authors = await User.find({ _id: { $in: [...new Set(msgs.map(m => m.a))] } }).select('n av pl pe ac pg').lean();
+      const rpIds = [...new Set(msgs.map(m => m.rp).filter(Boolean))];
+      const parents = rpIds.length ? await Msg.find({ _id: { $in: rpIds }, d: { $ne: 1 } }).select('_id a m').lean() : [];
+      const parentMap = Object.fromEntries(parents.map(p => [p._id, p]));
+      const authors = await User.find({ _id: { $in: [...new Set([...msgs.map(m => m.a), ...parents.map(p => p.a)])] } }).select('n av pl pe ac pg').lean();
       const people = Object.fromEntries(authors.map(u => [u._id, u]));
       return res.status(200).json({
         messages: msgs.reverse().map(m => {
-          const p = people[m.a], plus = plusOn(p);
-          return { id: m._id, mine: m.a === auth.userId, text: m.m, t: m.t, rx: Object.entries(m.rx || {}).map(([e, a]) => ({ e, n: a.length, me: a.includes(auth.userId) })).filter(r => r.n), author: { id: m.a, username: p?.n || 'Unknown', avatar: p?.av, plus, accent: plus ? (p?.ac || '') : '', glow: plus ? (p?.pg || '') : '' } };
+          const p = people[m.a], plus = plusOn(p), par = parentMap[m.rp];
+          return { id: m._id, mine: m.a === auth.userId, text: m.m, t: m.t, rx: Object.entries(m.rx || {}).map(([e, a]) => ({ e, n: a.length, me: a.includes(auth.userId) })).filter(r => r.n), reply: par ? { id: par._id, username: (people[par.a] || {}).n || 'Unknown', text: String(par.m || '').slice(0, 120) } : null, author: { id: m.a, username: p?.n || 'Unknown', avatar: p?.av, plus, accent: plus ? (p?.ac || '') : '', glow: plus ? (p?.pg || '') : '' } };
         })
       });
     }
@@ -460,7 +463,20 @@ module.exports = async function handler(req, res) {
         target = { b: Number(id) };
       }
       const [msg] = await Promise.all([createWithId(Msg, { a: auth.userId, ...target, m: clean }), User.updateOne({ _id: auth.userId }, { $inc: { mc: 1 } })]);
-      return res.status(200).json({ message: { id: msg._id, mine: true, text: msg.m, t: msg.t, rx: [], author: { id: auth.userId, username: me?.n || 'You', avatar: me?.av, plus, accent: plus ? (me?.ac || '') : '', glow: plus ? (me?.pg || '') : '' } } });
+      let reply = null;
+      const rp = Number(replyId) || 0;
+      if (rp) {
+        const parent = await Msg.findById(rp).select('_id a m s ch b d').lean();
+        const same = parent && parent.d !== 1 && (isServer
+          ? parent.s === Number(id) && parent.ch === Number(channelId)
+          : (parent.a === auth.userId && parent.b === Number(id)) || (parent.a === Number(id) && parent.b === auth.userId));
+        if (same) {
+          const par = await User.findById(parent.a).select('n').lean();
+          await Msg.updateOne({ _id: msg._id }, { $set: { rp: parent._id } });
+          reply = { id: parent._id, username: par?.n || 'Unknown', text: String(parent.m || '').slice(0, 120) };
+        }
+      }
+      return res.status(200).json({ message: { id: msg._id, mine: true, text: msg.m, t: msg.t, rx: [], reply, author: { id: auth.userId, username: me?.n || 'You', avatar: me?.av, plus, accent: plus ? (me?.ac || '') : '', glow: plus ? (me?.pg || '') : '' } } });
     }
 
     // ---------- read state (seen/unseen) ----------

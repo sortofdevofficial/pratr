@@ -156,6 +156,7 @@
           <div class="composer-wrap" id="composer-wrap">
             <div class="emoji-pop hidden" id="emoji-pop"></div>
             <div class="mention-pop hidden" id="mention-pop"></div>
+            <div class="reply-bar hidden" id="reply-bar"><span class="rb-arrow">↩</span><div class="rb-text"><strong id="rb-name"></strong><small id="rb-snip"></small></div><button class="icon-btn" id="rb-x" type="button" title="Cancel reply" aria-label="Cancel reply">×</button></div>
             <form id="chat-form" class="composer">
               <textarea id="chat-input" rows="1" maxlength="2000" placeholder="Message" autocomplete="off"></textarea>
               <button type="button" class="icon-btn" id="emoji-btn" title="Emoji" aria-label="Emoji"><svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg></button>
@@ -357,6 +358,15 @@
     <div class="sec-title"><span>Your recent sessions</span></div>
     <p class="hint">Every session is saved for your account, whether or not you have Plus.</p>
     <div class="logbox" id="vhist-list"></div>
+  </div>
+</div>
+
+<div class="modal hidden" id="modal-forward" role="dialog" aria-modal="true">
+  <div class="modal-card">
+    <button class="modal-x" data-close aria-label="Close">×</button>
+    <h2>Forward message</h2>
+    <p class="hint" id="fwd-sub"></p>
+    <div class="fwd-list" id="fwd-list"></div>
   </div>
 </div>
 

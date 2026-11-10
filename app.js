@@ -12,6 +12,8 @@ const ICON = {
     micOff: svg('M2 2l20 20M9 9v3a3 3 0 0 0 5.1 2.1M15 9.3V5a3 3 0 0 0-5.9-.8M19 10v2a7 7 0 0 1-.9 3.4M5 10v2a7 7 0 0 0 11.5 5.4M12 19v3'),
     headphones: svg('M3 18v-6a9 9 0 0 1 18 0v6M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z'),
     x: svg('M18 6 6 18M6 6l12 12'),
+    reply: svg('M9 17 4 12l5-5M4 12h10a6 6 0 0 1 6 6v1'),
+    forward: svg('M15 7l5 5-5 5M20 12H9a5 5 0 0 0-5 5v1'),
     smile: svg('M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01')
 };
 
@@ -20,7 +22,7 @@ const S = {
     me: null, servers: [], friends: [], requests: { in: [], out: [] }, view: 'home',
     server: null, channels: [], channelId: null, dm: null, members: [],
     last: {}, chLoaded: false, sig: '', sending: false, membersOn: (() => { try { const v = localStorage.getItem('members'); if (v) return v === '1'; } catch {} return window.innerWidth > 760; })(),
-    login: true, t1: null, t2: null, t3: null, t4: null, maxId: {}, fullAt: {}, voice: {}
+    login: true, t1: null, t2: null, t3: null, t4: null, maxId: {}, fullAt: {}, voice: {}, reply: null
 };
 const V = { on: false, sid: null, chId: null, name: '', sname: '', stream: null, peers: new Map(), watch: new Map(), speak: new Set(), early: {}, cool: {}, joined: {}, ice: [], muted: false, deaf: false, mutedBefore: false, sig: '', ctx: null };
 
@@ -189,7 +191,7 @@ async function boot() {
 function startTimers() {
     clearInterval(S.t1); clearInterval(S.t2); clearInterval(S.t3);
     S.t3 = setInterval(() => { if (!document.hidden) loadVoice(); }, 2500);
-    clearInterval(S.t4); S.t4 = setInterval(() => { if (!document.hidden) pollUnread(); }, 4000); pollUnread();
+    clearInterval(S.t4); S.t4 = setInterval(() => pollUnread(), 5000); pollUnread(); // also runs hidden, for notifications
     S.t1 = setInterval(() => { if (!document.hidden && S.view !== 'home') loadMessages(false); }, 3000);
     S.t2 = setInterval(async () => {
         if (document.hidden) return;
@@ -405,6 +407,28 @@ input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendMessage(); }
 });
 $('chat-form').onsubmit = (e) => { e.preventDefault(); sendMessage(); };
+$('rb-x').onclick = () => { cancelReply(); input.focus(); };
+
+const snip = (t) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, 90);
+function startReply(m) {
+    S.reply = { key: chatKey(), m };
+    paintReplyBar();
+    input.focus();
+}
+function cancelReply() {
+    S.reply = null;
+    paintReplyBar();
+}
+function paintReplyBar() {
+    const bar = $('reply-bar');
+    if (!bar) return;
+    const r = S.reply;
+    if (r && r.key !== chatKey()) S.reply = null;
+    if (!S.reply) { bar.classList.add('hidden'); return; }
+    $('rb-name').textContent = S.reply.m.author.username;
+    $('rb-snip').textContent = snip(S.reply.m.text);
+    bar.classList.remove('hidden');
+}
 
 async function sendMessage() {
     const text = input.value.trim();
@@ -412,10 +436,12 @@ async function sendMessage() {
     const isServer = S.view === 'server';
     if (isServer && S.channelId == null) return toast('This server has no text channel yet.', true);
     const key = chatKey();
+    const replied = S.reply && S.reply.key === key ? S.reply.m : null;
     input.value = ''; autosize(); input.focus();
-    const temp = { id: -Date.now(), mine: true, pending: true, text, t: Math.floor(Date.now() / 1000), rx: [], author: { id: S.me.id, username: S.me.username, avatar: S.me.avatar, plus: S.me.plus } };
+    if (replied) cancelReply();
+    const temp = { id: -Date.now(), mine: true, pending: true, text, t: Math.floor(Date.now() / 1000), rx: [], reply: replied ? { id: replied.id, username: replied.author.username, text: snip(replied.text) } : null, author: { id: S.me.id, username: S.me.username, avatar: S.me.avatar, plus: S.me.plus } };
     renderMessages([...S_curMsgs, temp], true); // paint now, confirm with the server's echo
-    const out = await post({ action: 'send', kind: isServer ? 'server' : 'dm', id: isServer ? S.server.id : S.dm.id, text, ...(isServer ? { channelId: S.channelId } : {}) });
+    const out = await post({ action: 'send', kind: isServer ? 'server' : 'dm', id: isServer ? S.server.id : S.dm.id, text, ...(isServer ? { channelId: S.channelId } : {}), ...(replied ? { replyId: replied.id } : {}) });
     if (chatKey() !== key) return; // user navigated away while it was sending
     if (out.res.ok) { S.sig = ''; if (S.me) S.me.msgs = (S.me.msgs || 0) + 1; renderMessages([...S_curMsgs.filter(m => m.id !== temp.id && m.id !== out.data.message.id), out.data.message], true); }
     else { renderMessages(S_curMsgs.filter(m => m.id !== temp.id), true); input.value = text; autosize(); toast(out.data.error || 'Message failed.', true); }
@@ -779,13 +805,62 @@ async function flareGrant(sign) {
 $('flare-give').onclick = () => flareGrant(1);
 $('flare-take').onclick = () => flareGrant(-1);
 
-/* ---------- unread / ping tracking (no per-message alerts; only pings badge, servers only) ---------- */
+/* ---------- unread / ping tracking, notifications and sounds ---------- */
 S.unread = { channels: {}, dms: {} };
+S.pingSeen = null; // previous counts, so we only alert on new messages
+let audioCtx = null;
+function pingSound() {
+    try {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        const t = audioCtx.currentTime;
+        [880, 1320].forEach((f, i) => {
+            const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+            o.type = 'sine'; o.frequency.value = f;
+            g.gain.setValueAtTime(0.0001, t + i * 0.12);
+            g.gain.exponentialRampToValueAtTime(0.09, t + i * 0.12 + 0.015);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.12 + 0.22);
+            o.connect(g).connect(audioCtx.destination);
+            o.start(t + i * 0.12); o.stop(t + i * 0.12 + 0.24);
+        });
+    } catch {}
+}
+function notify(title, body, tag) {
+    try { if ('Notification' in window && Notification.permission === 'granted' && document.hidden) new Notification(title, { body, tag, icon: '/favicon.png' }); } catch {}
+}
+document.addEventListener('pointerdown', () => {
+    if (S.token && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
+}, { once: true });
 async function pollUnread() {
     if (!S.token) return;
     const out = await post({ action: 'unreads' });
     if (!out.res.ok) return;
     S.unread = out.data;
+    const dms = out.data.dms || {}, chans = out.data.channels || {};
+    const prev = S.pingSeen;
+    const seen = { dms: {}, channels: {} };
+    let total = 0;
+    Object.entries(dms).forEach(([id, d]) => { seen.dms[id] = d.pings || 1; total += d.pings || 1; });
+    Object.entries(chans).forEach(([id, c]) => { seen.channels[id] = c.pings || 0; total += c.pings || 0; });
+    S.pingSeen = seen;
+    if (prev) {
+        Object.entries(seen.dms).forEach(([id, n]) => {
+            if (n <= (prev.dms[id] || 0)) return;
+            if (S.view === 'dm' && S.dm && S.dm.id === Number(id)) return;
+            const f = S.friends.find(x => x.id === Number(id));
+            const who = f ? (f.username || f.email) : 'Someone';
+            pingSound(); notify(`${who} messaged you`, 'Open Pratr to reply.', `dm-${id}`);
+            if (!document.hidden) toast(`${who} messaged you`);
+        });
+        Object.entries(seen.channels).forEach(([id, n]) => {
+            if (n <= (prev.channels[id] || 0)) return;
+            if (S.view === 'server' && S.channelId === Number(id)) return;
+            const ch = S.channels.find(c => c.id === Number(id));
+            const label = ch ? `#${ch.name}` : 'a channel';
+            pingSound(); notify(`New ping in ${label}`, 'Someone mentioned you.', `ch-${id}`);
+            if (!document.hidden) toast(`New ping in ${label}`);
+        });
+    }
+    document.title = total ? `(${total}) pratr` : 'pratr';
     renderSide();
     markRead(); // a message that arrived in the open conversation is read once messages catch up
 }

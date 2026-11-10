@@ -52,10 +52,10 @@ function renderSide() {
     const dms = $('dm-list');
     dms.textContent = '';
     if (!S.friends.length) dms.append(h('div', 'side-empty', 'Add a friend to start chatting.'));
-    S.friends.forEach(u => {
-        const b = h('button', 'dm-item' + (S.view === 'dm' && S.dm && S.dm.id === u.id ? ' active' : ''));
-        const da = userAva(u, 'sm'); da.append(dot(u.status));
+    [...S.friends].sort((a, b) => (S.unread.dms[b.id] ? 1 : 0) - (S.unread.dms[a.id] ? 1 : 0)).forEach(u => {
         const dun = S.unread.dms[u.id];
+        const b = h('button', 'dm-item' + (S.view === 'dm' && S.dm && S.dm.id === u.id ? ' active' : '') + (dun ? ' has-unread' : ''));
+        const da = userAva(u, 'sm'); da.append(dot(u.status));
         b.append(da, h('span', dun ? 'unread' : '', u.username || u.email));
         if (dun) b.append(h('em', 'ping-badge', String(dun.pings)));
         b.onclick = () => openDM(u);
@@ -98,6 +98,16 @@ function renderSide() {
             if (c.kind === 'v') (S.voice[c.id] || []).forEach(p => list.append(voiceRow(p)));
         });
     });
+
+    const ocSec = h('div', 'sec-title'); ocSec.append(h('span', '', 'Overclocks'));
+    list.append(ocSec);
+    const oc = h('div', 'ch-item oc-item');
+    oc.tabIndex = 0; oc.setAttribute('role', 'button');
+    oc.append(h('span', 'oc-star', '✦'), h('span', '', 'Server overclock'), h('em', 'oc-count', String(S.server.boosts || 0)));
+    oc.title = `${S.server.boosts || 0} overclocks · ${S.server.tier || 0} perk tiers — perks, art, emoji and stickers`;
+    oc.onclick = () => openBoosts();
+    oc.onkeydown = (e) => { if (e.key === 'Enter') openBoosts(); };
+    list.append(oc);
 }
 
 function renderFriends() {
@@ -201,6 +211,7 @@ function renderMain() {
     $('chat-empty').classList.toggle('hidden', !none);
     if (none) renderEmpty();
     $('chat-input').placeholder = isServer ? (ch ? `Message #${ch.name}` : '') : `Message @${S.dm.username || S.dm.email}`;
+    paintReplyBar();
 }
 
 function renderEmpty() {
@@ -296,6 +307,7 @@ function renderMessages(list, force) {
         if (day !== prevDay) { box.append(h('div', 'day-div', fmtDay(m.t))); prevDay = day; prev = null; }
         const same = prev && prev.author.id === m.author.id && m.t - prev.t < 300;
         const row = h('div', 'msg' + (same ? '' : ' first'));
+        if (!m.pending) row.id = 'msg-' + m.id;
         if (m.pending) row.classList.add('pending');
         const gutter = h('div', 'gutter');
         if (same) gutter.textContent = fmtTime(m.t); else gutter.append(userAva(m.author));
@@ -310,6 +322,19 @@ function renderMessages(list, force) {
         }
         const sticker = stickerUrl(m.text);
         let txt, mentionsMe = false;
+        if (m.reply) {
+            const q = h('div', 'reply-quote');
+            q.append(h('strong', '', m.reply.username || 'Unknown'), h('span', '', m.reply.text || ''));
+            q.title = 'Jump to the replied message';
+            q.onclick = () => {
+                const el = document.getElementById('msg-' + m.reply.id);
+                if (!el) return;
+                el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                el.classList.add('flash');
+                setTimeout(() => el.classList.remove('flash'), 1300);
+            };
+            body.append(q);
+        }
         if (sticker) {
             txt = h('img', 'sticker-img');
             txt.src = sticker; txt.alt = 'sticker'; txt.loading = 'lazy';
@@ -1001,13 +1026,19 @@ function renderBoostAssets(d) {
     box.append(sec);
     [['banner', 'Animated banner', 2, 'Wide strip behind your server name. It pans slowly.'],
      ['logo', 'Server logo', 4, 'Square logo with a glowing ring next to your server name.']].forEach(([key, label, at, blurb]) => {
-        const enabled = on.has(key);
+        const unlocked = d.boosts >= at, enabled = on.has(key);
         const row = h('div', 'asset-row');
         const prev = h('div', 'asset-prev' + (key === 'banner' ? ' wide' : ''));
         if (d[key]) prev.style.background = `center/cover url("${d[key]}")`; else prev.textContent = key === 'banner' ? 'No banner' : 'No logo';
         const info = h('div', 'asset-info');
-        info.append(h('strong', '', label), h('small', '', enabled ? blurb : `${label} unlocks at ${at} overclocks — then enable the perk above.`));
+        info.append(h('strong', '', label), h('small', '', enabled ? blurb : unlocked ? `${label} is unlocked — enable the perk to use it.` : `${label} unlocks at ${at} overclocks.`));
         const btns = h('div', 'asset-btns');
+        if (owner && unlocked && !enabled) {
+            const en = h('button', 'btn primary sm', 'Enable');
+            en.type = 'button';
+            en.onclick = () => setPerk({ k: key, n: label }, true);
+            btns.append(en);
+        }
         if (owner) {
             const up = h('button', 'btn ghost sm', 'Upload');
             up.type = 'button'; up.disabled = !enabled;
@@ -1152,7 +1183,7 @@ $('boost-admin-give').onclick = () => adminOverclocks(1);
 $('boost-admin-take').onclick = () => adminOverclocks(-1);
 
 /* ---------- reactions ---------- */
-const QUICK = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉', '👀', '💯'];
+const QUICK = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉', '👀', '💯', '😍', '🥰', '😎', '🤔', '😭', '😡', '🤯', '🥳', '👏', '🙌', '💀', '✅', '❌', '⚡'];
 async function react(m, e) {
     const row = S_curMsgs.find(x => x.id === m.id) || m;
     let r = row.rx.find(x => x.e === e);
@@ -1167,6 +1198,11 @@ function reactRow(m) {
     m.rx.forEach(r => { const b = h('button', 'rx' + (r.me ? ' me' : '')); b.type = 'button'; b.append(emojiArt.node(r.e, 'rx-e'), h('span', 'rx-n', String(r.n))); b.onclick = () => react(m, r.e); d.append(b); });
     return d;
 }
+function toolBtn(icon, title, fn) {
+    const b = h('button', 'icon-btn'); b.type = 'button'; b.innerHTML = icon; b.title = title;
+    b.onclick = (ev) => { ev.stopPropagation(); fn(); };
+    return b;
+}
 function reactTools(m) {
     const t = h('div', 'msg-tools'), b = h('button', 'icon-btn');
     b.type = 'button'; b.innerHTML = ICON.smile; b.title = 'Add reaction';
@@ -1177,10 +1213,46 @@ function reactTools(m) {
         QUICK.forEach(e => { const x = h('button', ''); x.type = 'button'; x.append(emojiArt.node(e, 'rx-e')); x.onclick = () => { p.remove(); react(m, e); }; p.append(x); });
         t.append(p);
     };
-    t.append(b);
+    t.append(toolBtn(ICON.reply, 'Reply', () => startReply(m)), toolBtn(ICON.forward, 'Forward', () => openForward(m)), b);
     return t;
 }
 document.addEventListener('click', () => document.querySelectorAll('.rx-pop').forEach(x => x.remove()));
+
+/* ---------- forward ---------- */
+async function openForward(m) {
+    $('fwd-sub').textContent = `“${snip(m.text)}”`;
+    const box = $('fwd-list');
+    box.textContent = '';
+    openModal('modal-forward');
+    const dmHead = h('div', 'sec-title'); dmHead.append(h('span', '', 'Direct messages'));
+    box.append(dmHead);
+    if (!S.friends.length) box.append(h('div', 'side-empty', 'Add a friend to forward to a direct message.'));
+    S.friends.forEach(f => {
+        const b = h('button', 'fwd-item');
+        b.append(userAva(f, 'sm'), h('span', '', f.username || f.email));
+        b.onclick = () => forwardTo('dm', f.id, null, m);
+        box.append(b);
+    });
+    const head = h('div', 'sec-title'); head.append(h('span', '', 'Channels'));
+    box.append(head);
+    for (const s of S.servers.slice(0, 20)) {
+        let chans = s.id === (S.server && S.server.id) && S.chLoaded ? S.channels : null;
+        if (!chans) { const out = await post({ action: 'channels', id: s.id }); if (out.res.ok) chans = out.data.channels || []; }
+        (chans || []).filter(c => c.kind !== 'v').forEach(c => {
+            const b = h('button', 'fwd-item');
+            b.append(h('span', 'fwd-hash', '#'), h('span', '', `${s.name} — ${c.name}`));
+            b.onclick = () => forwardTo('server', s.id, c.id, m);
+            box.append(b);
+        });
+    }
+    if (!box.querySelector('.fwd-item')) box.append(h('div', 'side-empty', 'No channel to forward to yet.'));
+}
+async function forwardTo(kind, id, channelId, m) {
+    const out = await post({ action: 'send', kind, id, text: m.text, ...(kind === 'server' ? { channelId } : {}) });
+    if (!out.res.ok) return toast(out.data.error || 'Could not forward.', true);
+    closeModals();
+    toast('Message forwarded.');
+}
 
 /* ---------- security: sessions and password ---------- */
 let secData = null, secRevealed = false;

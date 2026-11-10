@@ -544,3 +544,27 @@ input.colour-input:disabled { cursor: not-allowed; }
 #modal-boosts .boost-actions .btn.primary:hover:not(:disabled) { filter: brightness(1.12); }
 #modal-boosts .logrow span { color: var(--txt); }
 #srv-boosts { cursor: pointer; color: #5ee0d6; border-color: rgba(94, 224, 214, .4); }
+
+/* ---------- replies, forwarding, unread DMs ---------- */
+.reply-bar { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 6px 10px; border-radius: 10px; background: var(--bg3); border: 1px solid var(--line); border-left: 3px solid var(--coral); }
+.reply-bar.hidden { display: none; }
+.rb-arrow { color: var(--coral); font-weight: 800; }
+.rb-text { flex: 1; min-width: 0; display: flex; gap: 8px; align-items: baseline; }
+.rb-text strong { flex: none; font-size: 12.5px; }
+.rb-text small { color: var(--mut); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reply-quote { display: flex; gap: 6px; align-items: baseline; margin: 2px 0 3px; padding: 2px 9px; border-left: 3px solid var(--coral); background: rgba(239, 232, 218, .05); border-radius: 0 8px 8px 0; color: var(--mut); font-size: 12.5px; cursor: pointer; max-width: min(560px, 100%); }
+.reply-quote strong { color: var(--bone); flex: none; }
+.reply-quote span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reply-quote:hover { background: rgba(239, 232, 218, .1); }
+.msg.flash { animation: msgFlash 1.2s ease; }
+@keyframes msgFlash { 0%, 100% { background: transparent; } 20% { background: rgba(255, 90, 78, .16); } }
+.fwd-list { max-height: min(55vh, 420px); overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.fwd-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 9px; color: var(--txt); text-align: left; }
+.fwd-item:hover { background: var(--bg4); }
+.fwd-hash { color: var(--coral); font-weight: 800; width: 14px; text-align: center; }
+.oc-item { gap: 8px; }
+.oc-star { color: #5ee0d6; font-size: 14px; }
+.oc-count { margin-left: auto; font-style: normal; font-size: 11px; font-weight: 800; color: #5ee0d6; background: rgba(94, 224, 214, .12); border-radius: 8px; padding: 1px 7px; }
+.dm-item.has-unread { background: rgba(255, 90, 78, .1); }
+.dm-item.has-unread span.unread { color: #ff8177; font-weight: 800; }
+.rx-pop { width: 254px; }
