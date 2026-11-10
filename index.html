@@ -152,6 +152,7 @@
         <div class="chat-col">
           <div class="messages" id="messages"></div>
           <div class="voice-stage hidden" id="voice-stage"></div>
+          <div class="stats-page hidden" id="stats-page"></div>
           <div class="empty hidden" id="chat-empty"></div>
           <div class="composer-wrap" id="composer-wrap">
             <div class="emoji-pop hidden" id="emoji-pop"></div>
@@ -173,7 +174,7 @@
         <div class="oc-inner">
           <header class="oc-head">
             <div><h2 class="oc-title">Server overclock</h2><p class="hint" id="boost-sub">Overclocks are permanent. Every overclock this server receives stays counted forever.</p></div>
-            <button class="btn ghost sm" id="oc-back" type="button">Back to chat</button>
+            <button class="btn ghost sm" id="oc-back" type="button"><svg viewBox="0 0 24 24" class="ic"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>Back to chat</button>
           </header>
           <div class="oc-grid">
             <section class="oc-col">
@@ -223,7 +224,7 @@
     <button class="modal-x" data-close aria-label="Close">×</button>
     <h2>Create your server</h2><p class="hint">A server is where you and your friends hang out. A #general channel is created for you.</p>
     <form id="server-create-form"><label class="field"><span>Server name</span><input id="server-name" maxlength="60" placeholder="My awesome server" autocomplete="off" required></label>
-    <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit">Create</button></div></form>
+    <div class="modal-actions"><button type="button" class="btn ghost" data-close><svg viewBox="0 0 24 24" class="ic"><path d="M18 6 6 18M6 6l12 12"/></svg>Cancel</button><button class="btn primary" type="submit"><svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg>Create</button></div></form>
   </div>
 </div>
 
@@ -232,7 +233,7 @@
     <button class="modal-x" data-close aria-label="Close">×</button>
     <h2>Join a server</h2><p class="hint">Paste an invite link or code.</p>
     <form id="server-join-form"><label class="field"><span>Invite</span><input id="join-code" placeholder="https://…/#invite=…" autocomplete="off" required></label>
-    <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit">Join</button></div></form>
+    <div class="modal-actions"><button type="button" class="btn ghost" data-close><svg viewBox="0 0 24 24" class="ic"><path d="M18 6 6 18M6 6l12 12"/></svg>Cancel</button><button class="btn primary" type="submit"><svg viewBox="0 0 24 24" class="ic"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Join</button></div></form>
   </div>
 </div>
 
@@ -241,12 +242,12 @@
     <button class="modal-x" data-close aria-label="Close">×</button>
     <h2>Create channel</h2>
     <form id="channel-create-form">
-      <label class="field"><span>Type</span><select id="new-channel-kind"><option value="t">Text channel</option><option value="v">Voice channel</option></select></label>
+      <label class="field"><span>Type</span><select id="new-channel-kind"><option value="t"># Text channel</option><option value="v">🔊 Voice channel</option><option value="live">📈 Live member count</option><option value="boost">✦ Overclock counter</option><option value="voice">🎙 Voice activity</option></select></label>
       <label class="field"><span>Channel name</span><input id="new-channel-name" placeholder="new-channel" maxlength="40" autocomplete="off" required></label>
       <label class="field"><span>Category</span><input id="new-channel-cat" list="cat-options" maxlength="40" autocomplete="off" value="TEXT CHANNELS"></label>
       <datalist id="cat-options"></datalist>
       <p class="msg-err" id="channel-modal-msg"></p>
-      <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit">Create</button></div>
+      <div class="modal-actions"><button type="button" class="btn ghost" data-close><svg viewBox="0 0 24 24" class="ic"><path d="M18 6 6 18M6 6l12 12"/></svg>Cancel</button><button class="btn primary" type="submit"><svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg>Create</button></div>
     </form>
   </div>
 </div>
@@ -268,11 +269,19 @@
     <button class="modal-x" data-close aria-label="Close">×</button>
     <h2>Settings</h2>
     <div class="tabs" id="pf-tabs" role="tablist">
-      <button class="tab on" data-tab="profile" type="button" role="tab">Profile</button>
-      <button class="tab" data-tab="security" type="button" role="tab">Security</button>
+      <button class="tab on" data-tab="profile" type="button" role="tab"><svg viewBox="0 0 24 24" class="ic"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Profile</button>
+      <button class="tab" data-tab="security" type="button" role="tab"><svg viewBox="0 0 24 24" class="ic"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Security</button>
     </div>
     <div class="tab-pane" id="tab-profile">
       <p class="hint">Your photo and username, as others see them.</p>
+      <div class="pf-preview-wrap">
+        <div class="pf-preview-label"><svg viewBox="0 0 24 24" class="ic"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><span>Live preview</span></div>
+        <div class="panel profile-card pf-preview" id="pf-preview">
+          <div class="ava lg" id="pfp-ava"></div>
+          <div class="meta"><strong id="pfp-name"></strong><small id="pfp-status" class="hidden"></small><small id="pfp-bio"></small><small id="pfp-stats"></small></div>
+          <em class="badge plus hidden" id="pfp-badge">✦ PLUS</em>
+        </div>
+      </div>
       <p class="hint" id="profile-stats"></p>
       <div class="up"><button type="button" class="ava lg" id="pf-ava" title="Change photo"></button><input type="file" id="pf-file" accept="image/*" hidden>
         <div class="up-btns"><button type="button" class="btn ghost" id="pf-pick">Upload photo</button><button type="button" class="linkbtn" id="pf-clear">Remove</button></div></div>
@@ -290,7 +299,7 @@
       <p class="hint hidden" id="plus-lock">A glowing profile card, a custom accent and name style, and a 400-character bio are Pratr Plus features. Your status, its timer and every other option are free for everyone.</p>
       <label class="dev-row"><input type="checkbox" id="dev-toggle"><span><strong>Developer mode</strong><small>Right-click users, channels, servers and messages to copy their IDs.</small></span></label>
       <p class="msg-err" id="profile-msg"></p>
-      <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>
+      <div class="modal-actions"><button type="button" class="btn ghost" data-close><svg viewBox="0 0 24 24" class="ic"><path d="M18 6 6 18M6 6l12 12"/></svg>Cancel</button><button class="btn primary" type="submit"><svg viewBox="0 0 24 24" class="ic"><path d="M20 6 9 17l-5-5"/></svg>Save</button></div></form>
     </div>
     <div class="tab-pane hidden" id="tab-security">
       <p class="hint">We save the IP, device and approximate place of every sign-in, hidden by default. Sign out anything you do not recognise.</p>
@@ -345,7 +354,7 @@
     <label class="field"><span>Description</span><textarea id="sv-desc" rows="2" maxlength="120" placeholder="What is your server about?"></textarea></label>
     <label class="dev-row"><input type="checkbox" id="sv-pub"><span><strong>List in Discover</strong><small>Anyone can find and join this server from the Discover page.</small></span></label>
     <p class="msg-err" id="sv-msg"></p>
-    <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>
+    <div class="modal-actions"><button type="button" class="btn ghost" data-close><svg viewBox="0 0 24 24" class="ic"><path d="M18 6 6 18M6 6l12 12"/></svg>Cancel</button><button class="btn primary" type="submit"><svg viewBox="0 0 24 24" class="ic"><path d="M20 6 9 17l-5-5"/></svg>Save</button></div></form>
   </div>
 </div>
 
@@ -414,5 +423,6 @@
 <script src="/ui.js"></script>
 <script src="/ui-emoji.js"></script>
 <script src="/ui-profile.js"></script>
+<script src="/ui-stats.js"></script>
 </body>
 </html>

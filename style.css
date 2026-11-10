@@ -475,10 +475,8 @@ input.colour-input:disabled { cursor: not-allowed; }
   .modal-card, .modal-card.wide { max-width: 100%; }
 }
 
-/* ---- Plus profile glow: the card glows, never the avatar ---- */
-.profile-card.glow { border-color: var(--pg, #ffd36b); box-shadow: 0 0 0 1px var(--pg, #ffd36b), 0 0 22px -10px var(--pg, #ffd36b); }
-.friend-card.glow { border-color: var(--pg, #ffd36b); box-shadow: 0 0 22px -10px var(--pg, #ffd36b); }
-.dmcard.glow { box-shadow: inset 3px 0 0 var(--pg, #ffd36b); }
+/* ---- Plus profile glow: a ring on the card's outer edge only — never an inner fill, never the avatar ---- */
+.profile-card.glow, .friend-card.glow, .dmcard.glow, .user-card.glow { border-color: var(--pg, #ffd36b); box-shadow: 0 0 0 1.5px var(--pg, #ffd36b), 0 0 12px -6px var(--pg, #ffd36b); }
 
 /* ---- animated server banner, logo and start-of-channel art ---- */
 @keyframes bannerPan { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
@@ -677,9 +675,16 @@ input:focus, textarea:focus, select:focus { border-color: #5865f2; box-shadow: n
 .uc-bio { margin: 12px 18px 0; color: var(--txt); font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .uc-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 16px 18px 0; }
 .uc-actions .btn { flex: 1; white-space: nowrap; }
-.user-card.glow { border-color: var(--pg, #5865f2); box-shadow: 0 24px 70px rgba(0, 0, 0, .55), 0 0 0 2px var(--pg, #5865f2), 0 0 30px -6px var(--pg, #5865f2); }
-.dmcard.glow { border-left-color: var(--pg, #5865f2); box-shadow: inset 3px 0 0 var(--pg, #5865f2); }
+.user-card.glow { border-color: var(--pg, #5865f2); box-shadow: 0 24px 70px rgba(0, 0, 0, .55), 0 0 0 1.5px var(--pg, #5865f2), 0 0 12px -6px var(--pg, #5865f2); }
 .mem, .friend-card, .dmcard, .msg .gutter .ava { cursor: pointer; }
+
+/* ---- live profile preview inside the settings modal ---- */
+.pf-preview-wrap { margin: 10px 0 6px; }
+.pf-preview-label { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; color: var(--dim); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.pf-preview-label .ic { width: 14px; height: 14px; }
+.pf-preview { gap: 14px; padding: 14px 16px; }
+.pf-preview .meta small:empty { display: none; }
+.pf-preview .badge { align-self: flex-start; }
 
 /* ---- @here / @everyone member list ---- */
 .role-list { display: flex; flex-direction: column; gap: 2px; max-height: 56vh; overflow-y: auto; margin-top: 8px; }
@@ -702,3 +707,55 @@ input:focus, textarea:focus, select:focus { border-color: #5865f2; box-shadow: n
 .font-opt { padding: 5px 11px; border-radius: 8px; background: #1e1f22; border: 1px solid var(--line); color: var(--mut); font-size: 12.5px; transition: .12s; }
 .font-opt:hover { border-color: #4e5058; color: var(--txt); }
 .font-opt.on { background: #5865f2; border-color: #5865f2; color: #fff; }
+
+/* ---- live stats channels ---- */
+.ch-count { flex: none; margin-left: auto; padding: 1px 7px; border-radius: 999px; background: rgba(239, 232, 218, .1); color: var(--bone); font-size: 11px; font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stats-page { flex: 1; overflow-y: auto; padding: 26px 30px 34px; display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth; }
+.stat-loading { color: var(--mut); font-size: 14px; padding: 30px 4px; }
+.stat-head { display: flex; align-items: flex-start; gap: 16px; }
+.stat-big { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.stat-label { color: var(--mut); font-size: 11.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+.stat-big strong { font-size: 38px; line-height: 1.1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.stat-big small { color: var(--dim); font-size: 13px; }
+.stat-live { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 5px 11px; border-radius: 999px; background: rgba(239, 232, 218, .06); border: 1px solid var(--line); color: var(--mut); font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.stat-tile { display: flex; flex-direction: column; gap: 3px; padding: 14px 16px; border-radius: 14px; background: var(--bg2); border: 1px solid var(--line); transition: border-color .15s, transform .15s; }
+.stat-tile:hover { border-color: #2b4270; transform: translateY(-1px); }
+.stat-ic { color: var(--acc); display: inline-flex; margin-bottom: 2px; }
+.stat-ic .ic { width: 18px; height: 18px; }
+.stat-tile small { color: var(--mut); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.stat-tile strong { font-size: 20px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.stat-card { padding: 16px 18px 14px; border-radius: 16px; background: var(--bg2); border: 1px solid var(--line); }
+.stat-card h3 { margin: 0 0 12px; font-size: 14px; font-weight: 800; letter-spacing: .01em; }
+.stat-card .hint { margin: 0; }
+.spark-wrap { height: 170px; border-radius: 10px; overflow: hidden; }
+.spark { display: block; width: 100%; height: 100%; }
+.spark-scale { display: flex; justify-content: space-between; margin-top: 6px; color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+.stat-people { display: flex; flex-direction: column; gap: 2px; }
+.stat-person { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 9px; font-size: 13.5px; transition: background .12s; }
+.stat-person:hover { background: rgba(239, 232, 218, .05); }
+.stat-rank { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--bg4); color: var(--mut); font-size: 11px; font-style: normal; font-weight: 700; }
+.stat-person span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stat-person strong { color: var(--bone); font-size: 12.5px; font-style: normal; font-variant-numeric: tabular-nums; }
+.stat-foot { margin: 0; color: var(--dim); font-size: 11.5px; }
+
+/* ---- interaction feedback: cursors, press states, focus rings, thin scrollbars ---- */
+.nav-item, .dm-item, .ch-item, .rail-btn, .tab, .font-opt, .accent-swatch, .colour-btn, .stat-person, .role-row, .logrow, .perk-row, .emoji-item, .sticker-item, .tag, .chip { cursor: pointer; }
+.ch-item:active, .nav-item:active, .dm-item:active, .rail-btn:active, .stat-person:active, .friend-card:active, .mem:active, .tab:active, .font-opt:active { transform: scale(.985); }
+.tab { display: inline-flex; align-items: center; gap: 7px; }
+.tab .ic { width: 15px; height: 15px; opacity: .75; }
+.tab.on .ic { opacity: 1; }
+.modal-actions .btn .ic, .btn .ic { width: 16px; height: 16px; }
+.modal-actions .btn, .oc-head .btn, .btn.ghost.sm { display: inline-flex; align-items: center; gap: 7px; }
+button:focus-visible, [role="button"]:focus-visible, a:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; }
+input:focus-visible, textarea:focus-visible, select:focus-visible { outline: none; }
+.side-body, .stats-page, .members, .oc-page, .logbox, .role-list { scrollbar-width: thin; scrollbar-color: #22345a transparent; overscroll-behavior: contain; }
+.side-body, .stats-page, .oc-page, .role-list { scroll-behavior: smooth; }
+.messages::-webkit-scrollbar, .side-body::-webkit-scrollbar, .stats-page::-webkit-scrollbar, .members::-webkit-scrollbar, .oc-page::-webkit-scrollbar, .logbox::-webkit-scrollbar, .role-list::-webkit-scrollbar { width: 9px; height: 9px; }
+.messages::-webkit-scrollbar-thumb, .side-body::-webkit-scrollbar-thumb, .stats-page::-webkit-scrollbar-thumb, .members::-webkit-scrollbar-thumb, .oc-page::-webkit-scrollbar-thumb, .logbox::-webkit-scrollbar-thumb, .role-list::-webkit-scrollbar-thumb { background: #22345a; border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+.messages::-webkit-scrollbar-thumb:hover, .side-body::-webkit-scrollbar-thumb:hover, .stats-page::-webkit-scrollbar-thumb:hover, .members::-webkit-scrollbar-thumb:hover, .oc-page::-webkit-scrollbar-thumb:hover { background: #2f4a7d; background-clip: padding-box; }
+
+@media (prefers-reduced-motion: reduce) {
+  .side-body, .stats-page, .oc-page, .role-list { scroll-behavior: auto; }
+  .stat-tile:hover { transform: none; }
+}

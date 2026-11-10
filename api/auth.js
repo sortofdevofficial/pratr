@@ -1,6 +1,6 @@
 // The handler lives here; models, helpers and connection setup live in ../lib/core.js.
 const { mongoose, bcrypt, jwt, crypto, nowSeconds, onlineCut, statusOf, stOf, clientIp, geoOf, deviceOf, clientInfo, infoText, hit, DUMMY_HASH, CURRENT_SCHEMA_VERSION, ensureSchemaVersion, withV, connectDB, User, Pending, Session, Msg, Server, Channel, Voice, VStat, Signal, Log, Read, Meta, Friend, Invite, Boost, lg, VOICE_LIVE, vLive, endVoice, reapMyVoice, reapVoice, readKey, voiceRoom, shortCode, findInvite, sendOtp, nextId, createWithId, isAdmin, areFriends, isMember, srv, okImg, MONTH, plusOn, BOOST_PERKS, boostTier, SERVER_FONTS, ACCENTS, cleanColour } = require('../lib/core');
-const { overclockActions, migrateAction, voiceActions, OVERCLOCK_ACTIONS } = require('./actions');
+const { overclockActions, migrateAction, voiceActions, statsActions, OVERCLOCK_ACTIONS, STATS_ACTIONS } = require('./actions');
 
 // Plus plans end on their own. Expiring and the monthly 2-boost grant are lazy: they run on the next
 // authenticated request, so no cron is needed. The cache keeps that to one extra read per user per minute.
@@ -346,7 +346,7 @@ module.exports = async function handler(req, res) {
     if (action === 'channels') {
       if (!(await isMember(id, auth.userId))) return res.status(403).json({ error: 'Not a member.' });
       const chans = await Channel.find({ s: Number(id), d: { $ne: 1 } }).sort({ _id: 1 }).lean();
-      return res.status(200).json({ channels: chans.map(c => ({ id: c._id, name: c.n, category: c.cat, kind: c.k || 't' })) });
+      return res.status(200).json({ channels: chans.map(c => ({ id: c._id, name: c.n, category: c.cat, kind: c.k || 't', sub: c.st || '' })) });
     }
 
     if (action === 'channel-create') {
@@ -354,12 +354,13 @@ module.exports = async function handler(req, res) {
       if (!(await Server.exists({ _id: serverId, o: auth.userId }))) return res.status(403).json({ error: 'Only owner can create channels.' });
       const chName = String(channelName || '').trim().toLowerCase().replace(/\s+/g, '-');
       if (!chName) return res.status(400).json({ error: 'Channel name required.' });
-      const k = ck === 'v' ? 'v' : 't';
-      const cat = String(category || '').trim().slice(0, 40) || (k === 'v' ? 'VOICE CHANNELS' : 'TEXT CHANNELS');
-      const ch = await createWithId(Channel, { s: serverId, n: chName, cat, k });
+      const KINDS = { t: ['t', ''], v: ['v', ''], live: ['s', 'live'], boost: ['s', 'boost'], voice: ['s', 'voice'] };
+      const [k, st] = KINDS[ck] || KINDS.t;
+      const cat = String(category || '').trim().slice(0, 40) || (k === 'v' ? 'VOICE CHANNELS' : k === 's' ? 'LIVE STATS' : 'TEXT CHANNELS');
+      const ch = await createWithId(Channel, { s: serverId, n: chName, cat, k, st });
       const chId = ch._id;
-      await lg(serverId, 'channel_create', auth.userId, { ch: chId, cn: chName, x: k === 'v' ? 'voice' : 'text' });
-      return res.status(200).json({ channel: { id: chId, name: chName, category: cat, kind: k } });
+      await lg(serverId, 'channel_create', auth.userId, { ch: chId, cn: chName, x: k === 's' ? `${st} stats` : k === 'v' ? 'voice' : 'text' });
+      return res.status(200).json({ channel: { id: chId, name: chName, category: cat, kind: k, sub: st } });
     }
 
     if (action === 'server-invite') {
@@ -394,7 +395,7 @@ module.exports = async function handler(req, res) {
       const ch = await Channel.findById(Number(channelId)).lean();
       if (!ch || !(await Server.exists({ _id: ch.s, o: auth.userId }))) return res.status(403).json({ error: 'Only the owner can delete channels.' });
       await Channel.updateOne({ _id: ch._id }, { d: 1 });
-      await lg(ch.s, 'channel_delete', auth.userId, { ch: ch._id, cn: ch.n, x: ch.k === 'v' ? 'voice' : 'text' }); // hidden, messages and channel stay in the database
+      await lg(ch.s, 'channel_delete', auth.userId, { ch: ch._id, cn: ch.n, x: ch.k === 's' ? `${ch.st || 'live'} stats` : ch.k === 'v' ? 'voice' : 'text' }); // hidden, messages and channel stay in the database
       return res.status(200).json({ ok: true });
     }
 
@@ -440,7 +441,7 @@ module.exports = async function handler(req, res) {
         hit(`msg:${auth.userId}`, 20, 10),
         User.findById(auth.userId).select('n av pl pe ac pg nf').lean(),
         isServer ? isMember(id, auth.userId) : true,
-        isServer ? Channel.exists({ _id: Number(channelId), s: Number(id), k: { $ne: 'v' }, d: { $ne: 1 } }) : true,
+        isServer ? Channel.exists({ _id: Number(channelId), s: Number(id), k: { $nin: ['v', 's'] }, d: { $ne: 1 } }) : true,
         isServer ? true : areFriends(auth.userId, Number(id)),
         isServer ? Server.findById(Number(id)).select('bp').lean() : null
       ]);
@@ -658,6 +659,8 @@ module.exports = async function handler(req, res) {
     }
 
     if (OVERCLOCK_ACTIONS.has(action)) return overclockActions({ body, auth, res });
+
+    if (STATS_ACTIONS.has(action)) return statsActions({ body, auth, res });
 
     if (action === 'activity') { // admin: everything one account has done (logins, profile edits, friends, status, plus)
       const adm = await User.findById(auth.userId).select('e').lean();

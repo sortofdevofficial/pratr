@@ -1,7 +1,49 @@
 // Server-side action groups split out of auth.js so neither file grows unwieldy.
-const { ACCENTS, cleanColour, MONTH, nowSeconds, isAdmin, isMember, createWithId, plusOn, boostTier, BOOST_PERKS, SERVER_FONTS, srv, lg, reapVoice, endVoice, vLive, voiceRoom, User, Msg, Server, Channel, Voice, VStat, Signal, Log, Read, Meta, Friend, Boost } = require('../lib/core');
+const { ACCENTS, cleanColour, MONTH, nowSeconds, isAdmin, isMember, createWithId, plusOn, boostTier, BOOST_PERKS, SERVER_FONTS, statusOf, srv, lg, reapVoice, endVoice, vLive, voiceRoom, User, Msg, Server, Channel, SStat, Voice, VStat, Signal, Log, Read, Meta, Friend, Boost } = require('../lib/core');
 
 const OVERCLOCK_ACTIONS = new Set(['flare-grant', 'boost-info', 'server-boost', 'server-perk', 'boost-history']);
+const STATS_ACTIONS = new Set(['server-stats']);
+
+// Live stats channels: counts come from the server row, growth from one snapshot per day.
+const snapDone = new Map(); // sid -> "day:members:boosts" so we only write when the day or the numbers change
+async function statsActions({ body, auth, res }) {
+  const { action, id } = body;
+  if (action === 'server-stats') {
+    const server = await Server.findOne({ _id: Number(id), m: auth.userId }).lean();
+    if (!server) return res.status(403).json({ error: 'Not a member.' });
+    const sid = server._id, now = nowSeconds(), day = Math.floor(now / 86400), memberIds = server.m || [];
+    const stamp = `${day}:${memberIds.length}:${server.bc || 0}`;
+    if (snapDone.get(sid) !== stamp) {
+      await SStat.updateOne({ _id: `${sid}:${day}` }, { $set: { s: sid, d: day, m: memberIds.length, o: server.bc || 0 } }, { upsert: true });
+      snapDone.set(sid, stamp);
+    }
+    const [snaps, users, inVoice, week, boostRows, voiceTop] = await Promise.all([
+      SStat.find({ s: sid, d: { $gte: day - 29 } }).sort({ d: 1 }).lean(),
+      User.find({ _id: { $in: memberIds } }).select('n ls i').lean(),
+      Voice.find({ s: sid, ts: { $gt: vLive() } }).select('ch').lean(),
+      Log.aggregate([{ $match: { s: sid, ty: 'voice_leave', t: { $gt: now - 604800 } } }, { $group: { _id: null, t: { $sum: '$d' } } }]),
+      Boost.find({ s: sid, t: { $gte: now - MONTH } }).select('u n').lean(),
+      VStat.find({ s: sid }).sort({ t: -1 }).limit(5).lean()
+    ]);
+    const nm = Object.fromEntries(users.map(u => [u._id, u.n]));
+    const missing = [...new Set([...boostRows.map(b => b.u), ...voiceTop.map(v => v.u)].filter(u => u != null && !nm[u]))];
+    if (missing.length) (await User.find({ _id: { $in: missing } }).select('n').lean()).forEach(u => { nm[u._id] = u.n; });
+    const byUser = {};
+    for (const b of boostRows) byUser[b.u] = (byUser[b.u] || 0) + (b.n || 1);
+    const topBoosters = Object.entries(byUser).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([u, n]) => ({ username: nm[u] || 'Member', n }));
+    const boosts = server.bc || 0, next = BOOST_PERKS.find(p => boosts < p.at);
+    return res.status(200).json({
+      id: sid, name: server.n,
+      members: memberIds.length, online: users.filter(u => statusOf(u) !== 'offline').length, voice: inVoice.length,
+      boosts, tier: boostTier(boosts), nextPerk: next ? { n: next.n, at: next.at } : null,
+      series: snaps.map(r => ({ d: r.d, m: r.m || 0, o: r.o || 0 })),
+      weekVoice: week[0] ? week[0].t : 0,
+      topVoice: voiceTop.map(v => ({ username: nm[v.u] || 'Member', t: v.t || 0 })),
+      topBoosters, day
+    });
+  }
+  return res.status(400).json({ error: 'Invalid action.' });
+}
 
 async function overclockActions({ body, auth, res }) {
     const { action, id, username, count, perk, on, colour, font } = body;
@@ -105,8 +147,8 @@ async function migrateAction({ body, auth, res }) {
     if (action === 'migrate') {
       const adm = await User.findById(auth.userId).select('e').lean();
       if (!adm || !isAdmin(adm.e)) return res.status(403).json({ error: 'Admins only.' });
-      const [m1, m2, m3, m4] = await Promise.all([Meta.findById('migrate1').lean(), Meta.findById('migrate2').lean(), Meta.findById('migrate3').lean(), Meta.findById('migrate4').lean()]);
-      if (m1 && m1.v === 1 && m2 && m2.v === 1 && m3 && m3.v === 1 && m4 && m4.v === 1) return res.status(200).json({ ok: true, already: true, at: m4.at });
+      const [m1, m2, m3, m4, m5] = await Promise.all([Meta.findById('migrate1').lean(), Meta.findById('migrate2').lean(), Meta.findById('migrate3').lean(), Meta.findById('migrate4').lean(), Meta.findById('migrate5').lean()]);
+      if (m1 && m1.v === 1 && m2 && m2.v === 1 && m3 && m3.v === 1 && m4 && m4.v === 1 && m5 && m5.v === 1) return res.status(200).json({ ok: true, already: true, at: m5.at });
       let vstats = 0, vtSet = 0, mcSet = 0, defaults = 0;
       if (!(m1 && m1.v === 1)) {
         try { await Meta.create({ _id: 'migrate1', v: 0, at: 0 }); } catch (e) { if (e.code !== 11000) throw e; }
@@ -178,8 +220,26 @@ async function migrateAction({ body, auth, res }) {
         )).modifiedCount;
         await Meta.updateOne({ _id: 'migrate4' }, { v: 1, at: nowSeconds() });
       }
-      await lg(0, 'migrate', auth.userId, { x: `vstats ${vstats}, vt ${vtSet}, mc ${mcSet}, friends ${fr.modifiedCount}, plans ${legacyPlans}, servers ${serverDefaults}, statuses ${statusDefaults}, assets ${serverAssets}` });
-      return res.status(200).json({ ok: true, vstats, vtBackfilled: vtSet, mcBackfilled: mcSet, defaults, friendsBackfilled: fr.modifiedCount, planDefaults, legacyPlans, serverDefaults, statusDefaults, serverAssets });
+      // v6: stats-channel snapshots (one row per server for today) and the Plus profile name font default.
+      let statsSeeded = 0, nameFontDefaults = 0;
+      if (!(m5 && m5.v === 1)) {
+        try { await Meta.create({ _id: 'migrate5', v: 0, at: 0 }); } catch (e) { if (e.code !== 11000) throw e; }
+        nameFontDefaults = (await User.updateMany({ nf: { $exists: false } }, { $set: { nf: '' } })).modifiedCount;
+        const day = Math.floor(nowSeconds() / 86400);
+        const servers = await Server.find({}).select('m bc').lean();
+        const ops = servers.map(s => ({
+          updateOne: {
+            filter: { _id: `${s._id}:${day}` },
+            update: { $setOnInsert: { s: s._id, d: day, m: (s.m || []).length, o: s.bc || 0 } },
+            upsert: true
+          }
+        }));
+        if (ops.length) statsSeeded = (await SStat.bulkWrite(ops, { ordered: false })).upsertedCount || 0;
+        await Promise.all([SStat.createIndexes(), Channel.createIndexes(), User.createIndexes()]);
+        await Meta.updateOne({ _id: 'migrate5' }, { v: 1, at: nowSeconds() });
+      }
+      await lg(0, 'migrate', auth.userId, { x: `vstats ${vstats}, vt ${vtSet}, mc ${mcSet}, friends ${fr.modifiedCount}, plans ${legacyPlans}, servers ${serverDefaults}, statuses ${statusDefaults}, assets ${serverAssets}, stats ${statsSeeded}` });
+      return res.status(200).json({ ok: true, vstats, vtBackfilled: vtSet, mcBackfilled: mcSet, defaults, friendsBackfilled: fr.modifiedCount, planDefaults, legacyPlans, serverDefaults, statusDefaults, serverAssets, statsSeeded, nameFontDefaults });
     }
 }
 
@@ -243,4 +303,4 @@ async function voiceActions({ body, auth, res }) {
     return res.status(400).json({ error: 'Invalid action.' });
 }
 
-module.exports = { overclockActions, migrateAction, voiceActions, OVERCLOCK_ACTIONS };
+module.exports = { overclockActions, migrateAction, voiceActions, statsActions, OVERCLOCK_ACTIONS, STATS_ACTIONS };

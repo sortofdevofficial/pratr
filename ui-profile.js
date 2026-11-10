@@ -22,6 +22,7 @@ function openProfile(tab) {
     paintNameFonts(plus);
     syncStatusTtl();
     pend.pf = S.me?.avatar || ''; paint('pf', $('profile-name').value);
+    paintProfilePreview(plus);
     $('dev-toggle').checked = dev();
     openModal('modal-profile');
     settingsTab(tab || 'profile');
@@ -67,6 +68,7 @@ function setPend(kind, colour, plus) {
     const tools = $(kind === 'ac' ? 'accent-tools' : 'glow-tools');
     const hex = tools && tools.querySelector('.hexinput');
     if (hex) hex.value = /^#[0-9a-f]{6}$/i.test(colour || '') ? colour : '';
+    if (typeof paintProfilePreview === 'function') paintProfilePreview(plus);
 }
 function paintAccents(plus) {
     paintSwatches('accent-pick', pend.ac, plus, (c) => setPend('ac', c, plus));
@@ -82,10 +84,39 @@ function paintNameFonts(plus) {
     [['', 'Default'], ['rounded', 'Rounded'], ['serif', 'Serif'], ['mono', 'Mono'], ['wide', 'Wide']].forEach(([k, label]) => {
         const b = h('button', 'font-opt' + ((pend.nf || '') === k ? ' on' : ''), label);
         b.type = 'button'; b.style.fontFamily = fontOf(k); b.disabled = !plus;
-        b.onclick = () => { if (!plus) return; pend.nf = k; paintNameFonts(plus); };
+        b.onclick = () => { if (!plus) return; pend.nf = k; paintNameFonts(plus); paintProfilePreview(plus); };
         box.append(b);
     });
 }
+/* The settings modal shows the real card, so glow, accent, font and photo are visible before saving. */
+function paintProfilePreview(plus) {
+    const card = $('pf-preview');
+    if (!card) return;
+    const name = ($('profile-name').value || '').trim() || (S.me ? S.me.username : 'you');
+    const bio = ($('profile-bio').value || '').trim();
+    const st = ($('profile-status').value || '').trim();
+    const accent = plus ? (pend.ac || '') : '';
+    const glow = plus ? (pend.pg || '') : '';
+    card.classList.toggle('glow', !!glow);
+    if (glow) card.style.setProperty('--pg', glow); else card.style.removeProperty('--pg');
+    const av = $('pfp-ava');
+    av.textContent = pend.pf ? '' : ini(name);
+    av.style.background = bg(pend.pf, name);
+    av.classList.toggle('plus', plus && !!(glow || accent));
+    if (plus && (glow || accent)) av.style.setProperty('--ac', glow || accent); else av.style.removeProperty('--ac');
+    const n = $('pfp-name');
+    n.textContent = name; n.className = plus ? 'plus-name' : '';
+    n.style.color = plus ? ink(accent || '#ffd36b') : '';
+    n.style.fontFamily = plus ? fontOf(pend.nf) : '';
+    const s = $('pfp-status');
+    s.textContent = st; s.classList.toggle('hidden', !st);
+    s.style.color = plus && accent ? ink(accent) : '';
+    const b = $('pfp-bio');
+    b.textContent = bio || 'No bio yet.'; b.style.opacity = bio ? '' : '.55';
+    $('pfp-stats').textContent = S.me ? `${fmtDur(S.me.voice || 0)} in voice · ${S.me.msgs || 0} messages` : '';
+    $('pfp-badge').classList.toggle('hidden', !plus);
+}
+['profile-name', 'profile-bio', 'profile-status'].forEach(id => $(id).addEventListener('input', () => paintProfilePreview(!!(S.me && S.me.plus))));
 
 /* status expiry: the select stores a TTL in seconds; "custom" reads the hours box */
 function statusSeconds() {

@@ -9,7 +9,10 @@ $('dev-toggle').onchange = (e) => {
 };
 const pend = {}; // pending image URL per upload widget (pf = profile, sv = server); ac/pg = picked Plus colours
 const ACCENTS = ['#ffd36b', '#ff8fa3', '#7ee2b8', '#7cc4ff', '#b99bff', '#ffab6b', '#5ee0d6', '#f0e9db', '#ff5a4e', '#f472d0', '#8ef58a', '#6ea8ff', '#ffe45e', '#c6a4ff', '#ff9f43', '#9be7ff']; // must match api/auth.js
-const paint = (k, name) => { const el = $(k + '-ava'); el.textContent = pend[k] ? '' : ini(name); el.style.background = bg(pend[k], name); };
+const paint = (k, name) => {
+    const el = $(k + '-ava'); el.textContent = pend[k] ? '' : ini(name); el.style.background = bg(pend[k], name);
+    if (k === 'pf' && typeof paintProfilePreview === 'function') paintProfilePreview(!!(S.me && S.me.plus)); // keep the modal preview photo in sync
+};
 
 async function uploadImage(file, kind, transform = 'c_fill,g_auto,w_256,h_256') {
     const sig = await post({ action: 'upload-sign', kind });
