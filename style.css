@@ -779,8 +779,29 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .sp-item { cursor: pointer; }
 #sp-body { display: flex; flex-direction: column; gap: 16px; }
 .sp-charts, .sp-boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.stat-head-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: none; }
+.stat-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.stat-card-head h3 { margin: 0; }
+.stat-card-head .hint { margin: 0; font-size: 11.5px; }
+.sp-community { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: 14px; }
+.sp-roster { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.sp-member { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 7px 9px; border-radius: 10px; background: var(--bg4); border: 1px solid transparent; color: var(--txt); font: inherit; text-align: left; cursor: pointer; transition: background .12s, border-color .12s, transform .12s; }
+.sp-member:hover { background: rgba(239, 232, 218, .06); border-color: #2b4270; }
+.sp-member:active { transform: scale(.985); }
+.sp-member span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-member .ava { flex: none; }
+.sp-member .badge { flex: none; font-size: 9px; padding: 1px 5px; }
+.sp-events { display: flex; flex-direction: column; gap: 2px; }
+.sp-event { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 9px; font-size: 13px; transition: background .12s; }
+.sp-event:hover { background: rgba(239, 232, 218, .05); }
+.sp-event-ic { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 800; line-height: 1; }
+.sp-event.in .sp-event-ic { background: rgba(59, 165, 93, .18); color: #3ba55d; }
+.sp-event.out .sp-event-ic { background: rgba(242, 63, 67, .16); color: #f23f43; }
+.sp-event-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-event-what { color: var(--mut); }
+.sp-event-time { margin-left: auto; flex: none; color: var(--dim); font-size: 11.5px; }
 
 @media (max-width: 700px) {
-  .sp-charts, .sp-boards { grid-template-columns: 1fr; }
+  .sp-charts, .sp-boards, .sp-community { grid-template-columns: 1fr; }
   .ch-head .icon-btn { opacity: .7; }
 }

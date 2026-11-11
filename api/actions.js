@@ -1,5 +1,5 @@
 // Server-side action groups split out of auth.js so neither file grows unwieldy.
-const { ACCENTS, cleanColour, MONTH, nowSeconds, isAdmin, isMember, createWithId, plusOn, boostTier, BOOST_PERKS, SERVER_FONTS, statusOf, srv, lg, reapVoice, endVoice, vLive, voiceRoom, User, Msg, Server, Channel, SStat, Voice, VStat, Signal, Log, Read, Meta, Friend, Boost } = require('../lib/core');
+const { ACCENTS, cleanColour, MONTH, nowSeconds, isAdmin, isMember, createWithId, plusOn, boostTier, BOOST_PERKS, SERVER_FONTS, statusOf, stOf, srv, lg, reapVoice, endVoice, vLive, voiceRoom, User, Msg, Server, Channel, SStat, Voice, VStat, Signal, Log, Read, Meta, Friend, Boost } = require('../lib/core');
 
 const OVERCLOCK_ACTIONS = new Set(['flare-grant', 'boost-info', 'server-boost', 'server-perk', 'boost-history']);
 const STATS_ACTIONS = new Set(['server-stats']);
@@ -19,16 +19,19 @@ async function statsActions({ body, auth, res }) {
       snapDone.set(sid, stamp);
     }
     const since = (day - 29) * 86400, weekAgo = now - 604800;
-    const [snaps, users, inVoice, week, boostRows, voiceTop, weekMsgs, msgDays, chatterRows] = await Promise.all([
+    const [snaps, users, inVoice, week, boostRows, voiceTop, weekMsgs, msgDays, chatterRows, memberLogs, joinedWeek, leftWeek] = await Promise.all([
       SStat.find({ s: sid, d: { $gte: day - 29 } }).sort({ d: 1 }).lean(),
-      User.find({ _id: { $in: memberIds } }).select('n ls i').lean(),
+      User.find({ _id: { $in: memberIds } }).select('n av b ls ps st sx pl pe ac pg nf vt mc').lean(),
       Voice.find({ s: sid, ts: { $gt: vLive() } }).select('ch').lean(),
       Log.aggregate([{ $match: { s: sid, ty: 'voice_leave', t: { $gt: weekAgo } } }, { $group: { _id: null, t: { $sum: '$d' } } }]),
       Boost.find({ s: sid, t: { $gte: now - MONTH } }).select('u n').lean(),
       VStat.find({ s: sid }).sort({ t: -1 }).limit(5).lean(),
       Msg.countDocuments({ s: sid, t: { $gt: weekAgo } }),
       Msg.aggregate([{ $match: { s: sid, t: { $gte: since } } }, { $group: { _id: { $floor: { $divide: ['$t', 86400] } }, n: { $sum: 1 } } }, { $sort: { _id: 1 } }]),
-      Msg.aggregate([{ $match: { s: sid, t: { $gt: weekAgo } } }, { $group: { _id: '$a', n: { $sum: 1 } } }, { $sort: { n: -1 } }, { $limit: 5 }])
+      Msg.aggregate([{ $match: { s: sid, t: { $gt: weekAgo } } }, { $group: { _id: '$a', n: { $sum: 1 } } }, { $sort: { n: -1 } }, { $limit: 5 }]),
+      Log.find({ s: sid, ty: { $in: ['member_join', 'member_leave', 'member_kick'] } }).sort({ t: -1 }).limit(12).select('t ty an un').lean(),
+      Log.countDocuments({ s: sid, ty: 'member_join', t: { $gt: weekAgo } }),
+      Log.countDocuments({ s: sid, ty: { $in: ['member_leave', 'member_kick'] }, t: { $gt: weekAgo } })
     ]);
     const nm = Object.fromEntries(users.map(u => [u._id, u.n]));
     const missing = [...new Set([...boostRows.map(b => b.u), ...voiceTop.map(v => v.u), ...chatterRows.map(c => c._id)].filter(u => u != null && !nm[u]))];
@@ -36,9 +39,14 @@ async function statsActions({ body, auth, res }) {
     const byUser = {};
     for (const b of boostRows) byUser[b.u] = (byUser[b.u] || 0) + (b.n || 1);
     const topBoosters = Object.entries(byUser).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([u, n]) => ({ username: nm[u] || 'Member', n }));
+    const memberList = users.map(u => {
+      const plus = plusOn(u);
+      return { id: u._id, username: u.n, avatar: u.av, bio: plus ? (u.b || '') : (u.b || '').slice(0, 160), status: statusOf(u), plus, statusText: stOf(u), accent: plus ? (u.ac || '') : '', glow: plus ? (u.pg || '') : '', nameFont: plus ? (u.nf || '') : '', online: statusOf(u) !== 'offline', voice: u.vt || 0, msgs: u.mc || 0 };
+    });
+    const activity = memberLogs.map(l => ({ t: l.t, type: l.ty === 'member_join' ? 'join' : l.ty === 'member_kick' ? 'kick' : 'leave', username: (l.ty === 'member_kick' ? l.un : l.an) || 'Member' }));
     const boosts = server.bc || 0, next = BOOST_PERKS.find(p => boosts < p.at);
     return res.status(200).json({
-      id: sid, name: server.n,
+      id: sid, name: server.n, owner: server.o,
       members: memberIds.length, online: users.filter(u => statusOf(u) !== 'offline').length, voice: inVoice.length,
       boosts, tier: boostTier(boosts), nextPerk: next ? { n: next.n, at: next.at } : null,
       series: snaps.map(r => ({ d: r.d, m: r.m || 0, o: r.o || 0 })),
@@ -47,7 +55,7 @@ async function statsActions({ body, auth, res }) {
       msgSeries: msgDays.map(r => ({ d: r._id, n: r.n })),
       topVoice: voiceTop.map(v => ({ username: nm[v.u] || 'Member', t: v.t || 0 })),
       topChatters: chatterRows.map(c => ({ username: nm[c._id] || 'Member', n: c.n })),
-      topBoosters, day
+      topBoosters, memberList, activity, joinedWeek, leftWeek, day
     });
   }
   return res.status(400).json({ error: 'Invalid action.' });
