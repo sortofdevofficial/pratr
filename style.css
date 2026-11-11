@@ -947,3 +947,78 @@ a, .mention { cursor: var(--hand); }
   .side { width: min(70vw, 260px); }
   .voice-stage { padding: 4px; }
 }
+
+/* ============================================================
+   v9: back to the deep navy shell — but every glyph and label
+   now answers with colour, so the dark stays easy on the eyes
+   ============================================================ */
+:root {
+  --navy: #0b1426; --bone: #eef4ff;
+  --coral: #ff7a8a; --pink: #ff8fb0; --violet: #8ab4ff; --sky: #59c2ff; --mint: #4ee0c0; --amber: #ffc857;
+  --bg0: #0b1220; --bg1: #101a2e; --bg2: #16233c; --bg3: #1b2a47; --bg4: #24365c;
+  --line: #2b3f63; --line2: #3b5682; --txt: #eef4ff; --mut: #a6b4cc; --dim: #7d8ba6;
+  --acc: var(--coral); --ok: var(--mint); --danger: #ff6f7f;
+  --grad1: linear-gradient(135deg, #ff8fb0, #8ab4ff);
+}
+body { background: var(--bg0); }
+.rail { background: linear-gradient(180deg, #0b1220, #0f1a2e 55%, #14223b); }
+.rail::after { background: linear-gradient(180deg, transparent, var(--sky) 30%, var(--violet) 65%, transparent); opacity: .4; }
+.side, .side-head { background: linear-gradient(180deg, #14223b, #111c31 70%, #101a2e); }
+.side-head { background-color: transparent; }
+.main { background-color: var(--bg3); background-image:
+  radial-gradient(1000px 620px at -12% -10%, rgba(89, 194, 255, .12), transparent 62%),
+  radial-gradient(760px 480px at 108% 0%, rgba(255, 143, 176, .1), transparent 60%),
+  radial-gradient(700px 520px at 50% 118%, rgba(78, 224, 192, .07), transparent 62%); }
+.topbar { background: linear-gradient(180deg, rgba(35, 53, 86, .55), rgba(24, 38, 64, .2)); box-shadow: 0 1px 0 rgba(255, 255, 255, .04); }
+.user-panel { background: rgba(13, 22, 38, .75); }
+.panel { background: linear-gradient(180deg, rgba(33, 51, 84, .55), rgba(20, 32, 54, .82)); }
+.friend-card { background: rgba(33, 51, 84, .55); }
+.friend-card:hover { background: rgba(41, 62, 101, .72); }
+.disc-card { background: linear-gradient(180deg, rgba(33, 51, 84, .65), rgba(20, 32, 54, .9)); }
+.composer { background: rgba(20, 32, 54, .9); }
+.members { background: linear-gradient(180deg, rgba(25, 40, 68, .94), rgba(19, 30, 51, .94)); }
+.modal-card { background: linear-gradient(180deg, #1a2a47, #14213a); }
+.dmcard { background: linear-gradient(180deg, rgba(25, 40, 68, .94), rgba(19, 30, 51, .94)); }
+.dm-about, .oc-meter { background: rgba(13, 22, 38, .7); }
+.dev-row, .embed { background: rgba(13, 22, 38, .68); }
+.uc-top .ava.xl { border-color: #1a2a47; }
+.tabbar { background: linear-gradient(180deg, rgba(25, 40, 68, .94), rgba(12, 20, 35, .97)) !important; }
+.tabbar button.on { background: linear-gradient(135deg, rgba(255, 143, 176, .28), rgba(138, 180, 255, .22)); box-shadow: inset 0 0 0 1px rgba(255, 143, 176, .4); }
+
+/* ---- a different bright hue on every icon group ---- */
+.sec-title .ic, .cat-ic .ic { transition: color .15s, transform .15s; }
+.nav-item:nth-of-type(4n+1) .ic, .ch-item:nth-of-type(4n+1) .ic, .sec-title:nth-of-type(4n+1) .ic, .cat-ic:nth-of-type(4n+1) .ic { color: var(--coral); }
+.nav-item:nth-of-type(4n+2) .ic, .ch-item:nth-of-type(4n+2) .ic, .sec-title:nth-of-type(4n+2) .ic, .cat-ic:nth-of-type(4n+2) .ic { color: var(--sky); }
+.nav-item:nth-of-type(4n+3) .ic, .ch-item:nth-of-type(4n+3) .ic, .sec-title:nth-of-type(4n+3) .ic, .cat-ic:nth-of-type(4n+3) .ic { color: var(--mint); }
+.nav-item:nth-of-type(4n) .ic, .ch-item:nth-of-type(4n) .ic, .sec-title:nth-of-type(4n) .ic, .cat-ic:nth-of-type(4n) .ic { color: var(--amber); }
+.panel h3 .ic, .modal-card > h2 .ic, .modal-head .ic { color: var(--coral); }
+.menu button:nth-child(1) .ic { color: var(--coral); } .menu button:nth-child(2) .ic { color: var(--sky); }
+.menu button:nth-child(3) .ic { color: var(--mint); } .menu button:nth-child(4) .ic { color: var(--amber); }
+.menu button:nth-child(5) .ic { color: var(--violet); } .menu button:nth-child(6) .ic { color: var(--pink); }
+.menu button:hover:nth-child(n) .ic { color: var(--navy); }
+.btn.primary .ic { color: #fff; } .btn.ghost .ic { color: var(--sky); } .btn.danger .ic, .icon-btn.danger .ic { color: var(--coral); }
+.icon-btn.accent .ic { color: var(--amber); }
+.topbar-ic .ic { color: var(--sky); }
+.rail-btn.action .ic { color: var(--mint); }
+.rail-btn.action:hover .ic { color: var(--navy); }
+.rail-btn.active .ic { color: #fff; }
+.user-panel .icon-btn .ic { color: var(--mut); }
+.user-panel .icon-btn:hover .ic { color: var(--amber); }
+.sp-item .ic { color: var(--mint); } .wl-item .ic { color: var(--sky); } .oc-item .oc-star { color: var(--amber); }
+
+/* ---- text feedback: labels warm up as you point at them ---- */
+.nav-item, .ch-item, .dm-item, .friend-card strong, .disc-card strong, .sec-title span, .mlink, .btn {
+  transition: color .15s, background-color .15s, border-color .15s, transform .15s;
+}
+.nav-item:hover, .ch-item:hover, .dm-item:hover { color: #fff; }
+.nav-item:hover .ic, .ch-item:hover .ic { transform: scale(1.12); }
+.sec-title:hover span, .sec-title:hover .cat-ic .ic { color: var(--amber); }
+.friend-card:hover strong, .disc-card:hover strong { color: var(--sky); }
+.friend-card:hover small, .disc-card:hover p { color: var(--txt); }
+.btn:hover { color: #fff; }
+.btn.primary:hover { background: linear-gradient(135deg, #ff8fb0, #8ab4ff); }
+.btn.ghost:hover { background: rgba(89, 194, 255, .16); border-color: var(--sky); color: #fff; }
+.mlink:hover { color: #8fd4ff; text-decoration: underline; }
+.mut, .muted { color: var(--mut); }
+::selection { background: rgba(255, 143, 176, .35); color: #fff; }
+.modal-x:hover { color: var(--coral); }
