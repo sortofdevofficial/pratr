@@ -81,7 +81,7 @@ function renderActivityPage(kind) {
 
     const card = h('section', 'stat-card');
     const chead = h('div', 'stat-card-head');
-    chead.append(h('h3', '', welcome ? 'Recent arrivals' : 'Recent departures'), h('small', 'hint', welcome ? 'Newest first' : 'Newest first'));
+    chead.append(cardTitle(welcome ? 'up' : 'forward', welcome ? 'Recent arrivals' : 'Recent departures'), h('small', 'hint', welcome ? 'Newest first' : 'Newest first'));
     card.append(chead);
     if (!list.length) {
         card.append(h('p', 'hint', welcome
@@ -94,7 +94,7 @@ function renderActivityPage(kind) {
     list.forEach(ev => {
         const row = h('div', 'sp-event ' + (ev.type === 'join' ? 'in' : 'out'));
         row.append(
-            h('span', 'sp-event-ic', ev.type === 'join' ? '+' : '−'),
+            userAva(ev.user || { id: ev.id, username: ev.username }, 'xs'),
             userLink(ev.user || { id: ev.id, username: ev.username }, 'sp-event-name'),
             h('span', 'sp-event-what', ev.type === 'join' ? 'joined' : ev.type === 'kick' ? 'was removed' : 'left'),
             h('time', 'sp-event-time', ago(ev.t))
@@ -172,7 +172,7 @@ function paintOverview() {
 function memberCard(st) {
     const card = h('section', 'stat-card');
     const head = h('div', 'stat-card-head');
-    head.append(h('h3', '', 'Members'), h('small', 'hint', `${st.members || 0} total · ${st.online || 0} online`));
+    head.append(cardTitle('user', 'Members'), h('small', 'hint', `${st.members || 0} total · ${st.online || 0} online`));
     card.append(head);
     const list = [...(st.memberList || [])].sort((a, b) =>
         ((b.id === st.owner) - (a.id === st.owner)) || ((b.online ? 1 : 0) - (a.online ? 1 : 0)) ||
@@ -200,7 +200,7 @@ function memberCard(st) {
 function activityCard(st) {
     const card = h('section', 'stat-card');
     const head = h('div', 'stat-card-head');
-    head.append(h('h3', '', 'Welcome & leaves'), h('small', 'hint', `${st.joinedWeek || 0} joined · ${st.leftWeek || 0} left this week`));
+    head.append(cardTitle('up', 'Welcome & leaves'), h('small', 'hint', `${st.joinedWeek || 0} joined · ${st.leftWeek || 0} left this week`));
     card.append(head);
     const list = (st.activity || []).slice(0, 12);
     if (!list.length) { card.append(h('p', 'hint', 'No joins or leaves yet — invites show up here as they happen.')); return card; }
@@ -208,7 +208,7 @@ function activityCard(st) {
     list.forEach(ev => {
         const row = h('div', 'sp-event ' + (ev.type === 'join' ? 'in' : 'out'));
         row.append(
-            h('span', 'sp-event-ic', ev.type === 'join' ? '+' : '−'),
+            userAva(ev.user || { id: ev.id, username: ev.username }, 'xs'),
             userLink(ev.user || { id: ev.id, username: ev.username }, 'sp-event-name'),
             h('span', 'sp-event-what', ev.type === 'join' ? 'joined' : ev.type === 'kick' ? 'was removed' : 'left'),
             h('time', 'sp-event-time', ago(ev.t))
@@ -263,9 +263,16 @@ function deltaLabel(st, key) {
     return diff > 0 ? `+${diff}` : diff < 0 ? String(diff) : 'steady';
 }
 
+function cardTitle(icon, text) {
+    const t = h('h3');
+    t.innerHTML = ICON[icon] || '';
+    t.append(h('span', '', text));
+    return t;
+}
+
 function chartCard(title, pts, colour, empty) {
     const card = h('section', 'stat-card');
-    card.append(h('h3', '', title));
+    card.append(cardTitle('chart', title));
     if (!pts.some(p => p.v > 0)) { card.append(h('p', 'hint', empty)); return card; }
     const wrap = h('div', 'spark-wrap'); wrap.innerHTML = sparkSVG(pts, colour, `${S.server.id}-${title.replace(/\W+/g, '')}`);
     const min = Math.min(...pts.map(p => p.v)), max = Math.max(...pts.map(p => p.v));
@@ -293,12 +300,12 @@ function sparkSVG(points, colour, id) {
 
 function peopleCard(title, rows, empty) {
     const card = h('section', 'stat-card');
-    card.append(h('h3', '', title));
+    card.append(cardTitle('user', title));
     if (!rows.length) { card.append(h('p', 'hint', empty || 'Nobody yet.')); return card; }
     const list = h('div', 'stat-people');
     rows.forEach((r, i) => {
         const row = h('div', 'stat-person');
-        row.append(h('em', 'stat-rank', String(i + 1)), userLink(r.user || { username: r.name }), h('strong', '', r.value));
+        row.append(h('em', 'stat-rank', String(i + 1)), userAva(r.user || { username: r.name }, 'xs'), userLink(r.user || { username: r.name }), h('strong', '', r.value));
         list.append(row);
     });
     card.append(list);

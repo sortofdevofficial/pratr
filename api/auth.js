@@ -9,9 +9,9 @@ async function refreshPlus(uid) {
   const now = nowSeconds();
   const u = await User.findById(uid).select('pl pe ng ub').lean();
   if (!u) return;
-  if (u.pl && u.pe && u.pe <= now) {
-    const r = await User.updateOne({ _id: uid, pl: true, pe: { $lte: now } }, { $set: { pl: false, ng: 0 } });
-    if (r.modifiedCount) await lg(0, 'plus_expire', uid, { x: `plan ended ${new Date(u.pe * 1000).toISOString().slice(0, 10)}` });
+  if (u.pl && !(u.pe > now)) {
+    const r = await User.updateOne({ _id: uid, pl: true, $or: [{ pe: { $exists: false } }, { pe: { $lte: now } }] }, { $set: { pl: false, ng: 0 } });
+    if (r.modifiedCount) await lg(0, 'plus_expire', uid, { x: u.pe ? `plan ended ${new Date(u.pe * 1000).toISOString().slice(0, 10)}` : 'legacy plan without an end date' });
     return;
   }
   if (plusOn(u, now) && u.ng && u.ng <= now) {

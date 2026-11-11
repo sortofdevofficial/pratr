@@ -62,7 +62,8 @@ function userLink(u, cls = '', tag = 'span') {
     el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') open(e); };
     return el;
 }
-const nameColour = (u) => u.plus && u.accent ? ink(u.accent) : u.plus ? '#ffd36b' : color(u.username || u.email).replace('48%', '70%');
+// Only Plus members get a colour they chose; everyone else keeps the normal name colour.
+const nameColour = (u) => !u || !u.plus ? '' : u.accent ? ink(u.accent) : '#ffd36b';
 // Accent colours are picked freely, so lighten near-black ones before using them as text.
 function ink(c) {
     const s = String(c || '');

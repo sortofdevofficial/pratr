@@ -278,7 +278,7 @@ async function openVoiceTime() {
     else out.data.stats.forEach((s, i) => {
         const r = h('div', 'logrow'), txt = h('span');
         txt.append(userLink(s.user || { id: s.id, username: s.username }), ` — ${fmtDur(s.seconds)} over ${s.sessions} session${s.sessions === 1 ? '' : 's'}`);
-        r.append(h('b', '', `${i + 1}.`), txt, h('time', '', `last ${stamp(s.last)}`));
+        r.append(h('b', '', `${i + 1}.`), userAva(s.user || { id: s.id, username: s.username }, 'xs'), txt, h('time', '', `last ${stamp(s.last)}`));
         box.append(r);
     });
     const hs = await post({ action: 'voice-history', id: S.server.id });
@@ -394,7 +394,7 @@ function paintBoosts() {
     else d.history.forEach(x => {
         const r = h('div', 'logrow'), txt = h('span', '', `Overclocked ×${x.n || 1} by `);
         txt.append(userLink(x.user || { username: x.by }));
-        r.append(h('time', '', stamp(x.t)), txt); hist.append(r);
+        r.append(h('time', '', stamp(x.t)), userAva(x.user || { username: x.by }, 'xs'), txt); hist.append(r);
     });
 
     const grants = $('boost-grants');

@@ -41,7 +41,8 @@ async function statsActions({ body, auth, res }) {
     const byUser = {};
     for (const b of boostRows) byUser[b.u] = (byUser[b.u] || 0) + (b.n || 1);
     const topBoosters = Object.entries(byUser).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([u, n]) => ({ username: card(Number(u)).username, n, user: card(Number(u)) }));
-    const memberList = users.map(cardOf);
+    // map() passes the index as the second argument, so cardOf must be wrapped or every member after the first gets Plus.
+    const memberList = users.map(u => cardOf(u));
     const activity = memberLogs.map(l => {
       const who = card(l.ty === 'member_kick' ? l.u : l.a, (l.ty === 'member_kick' ? l.un : l.an));
       return { t: l.t, type: l.ty === 'member_join' ? 'join' : l.ty === 'member_kick' ? 'kick' : 'leave', username: who.username || 'Member', user: who };
