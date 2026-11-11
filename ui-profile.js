@@ -372,7 +372,6 @@ function paintBoosts() {
         const tier = h('em', 'perk-tier', `${p.at} overclock${p.at === 1 ? '' : 's'}`);
         side.append(tier);
         if (!unlocked) side.append(h('span', 'perk-lock', `${p.at - d.boosts} more`));
-        else if (p.k === 'pages') side.append(h('span', 'perk-on', 'In the sidebar'));
         else if (owner) {
             const btn = h('button', 'btn ghost sm', active ? 'Disable' : 'Enable');
             btn.type = 'button';
@@ -554,6 +553,7 @@ async function setPerk(p, on, colour, font) {
     if (!out.res.ok) { $('boost-msg').style.color = ''; $('boost-msg').textContent = out.data.error || 'Could not update the perk.'; return; }
     $('boost-msg').textContent = '';
     Object.assign(S.server, out.data.server);
+    if (p.k === 'pages' && !on && (S.page === 'welcome' || S.page === 'leave')) S.page = '';
     await loadServers();
     renderAll();
     await loadBoosts();

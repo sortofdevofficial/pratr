@@ -237,17 +237,13 @@ function paintChannelList() {
     sp.onkeydown = (e) => { if (e.key === 'Enter') openOverview(); };
     list.append(sp);
 
-    // Welcome and leave unlock with the last overclock perk; members see the locked rows to advertise it.
-    const pages = (S.server.boosts || 0) >= SERVER_PAGES_AT;
-    [['welcome', 'Welcome', ICON.user], ['leave', 'Leave', ICON.forward]].forEach(([key, label, ic]) => {
-        const row = h('div', 'ch-item wl-item' + (S.page === key ? ' active' : '') + (pages ? '' : ' locked'));
+    // Welcome and leave only appear once the owner turns the perk on from the overclock page.
+    if ((S.server.perks || []).includes('pages')) [['welcome', 'Welcome', ICON.user], ['leave', 'Leave', ICON.forward]].forEach(([key, label, ic]) => {
+        const row = h('div', 'ch-item wl-item' + (S.page === key ? ' active' : ''));
         row.tabIndex = 0; row.setAttribute('role', 'button');
         row.innerHTML = ic;
         row.append(h('span', '', label));
-        if (!pages) row.append(h('em', 'lock-count', `${SERVER_PAGES_AT}✦`));
-        row.title = pages
-            ? (key === 'welcome' ? 'New members and how to invite them' : 'Who left recently and when')
-            : `${label} page unlocks at ${SERVER_PAGES_AT} overclocks — this server has ${S.server.boosts || 0}`;
+        row.title = key === 'welcome' ? 'New members and how to invite them' : 'Who left recently and when';
         const open = () => (key === 'welcome' ? openWelcome() : openLeave());
         row.onclick = open;
         row.onkeydown = (e) => { if (e.key === 'Enter') open(); };

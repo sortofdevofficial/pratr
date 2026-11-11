@@ -28,6 +28,10 @@ async function openActivityPage(kind) {
         toast(`${kind === 'welcome' ? 'Welcome' : 'Leave'} page unlocks at ${SERVER_PAGES_AT} overclocks.`, true);
         return openBoosts();
     }
+    if (!(S.server.perks || []).includes('pages')) {
+        toast('Turn on the Welcome & leave pages perk in Server overclock first.', true);
+        return openBoosts();
+    }
     S.page = kind;
     renderAll();
     syncUrl();

@@ -813,9 +813,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .msg .head strong:hover, .msg .head strong:focus-visible, #rb-name:hover { text-decoration: underline; text-underline-offset: 2px; }
 a, .mention { cursor: var(--hand); }
 .mention:hover { text-decoration: underline; text-underline-offset: 2px; }
-.wl-item.locked { color: var(--dim); }
-.wl-item.locked .ic { opacity: .4; }
-.lock-count { flex: none; margin-left: auto; font-size: 10.5px; font-weight: 700; color: var(--dim); border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px; }
 
 @media (max-width: 700px) {
   .sp-charts, .sp-boards, .sp-community { grid-template-columns: 1fr; }
