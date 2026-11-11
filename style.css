@@ -1022,3 +1022,46 @@ body { background: var(--bg0); }
 .mut, .muted { color: var(--mut); }
 ::selection { background: rgba(255, 143, 176, .35); color: #fff; }
 .modal-x:hover { color: var(--coral); }
+
+/* ============================================================
+   v10: per-area colour identity + tactile pointer feedback
+   ============================================================ */
+/* each home panel gets its own accent rail instead of one flat colour */
+.home-wrap .panel { position: relative; overflow: hidden; }
+.home-wrap .panel::before { content: ""; position: absolute; left: 20px; right: 20px; top: 0; height: 2px; border-radius: 0 0 3px 3px; background: var(--sky); opacity: .85; }
+.home-wrap .panel:nth-child(2)::before { background: var(--coral); }
+.home-wrap .panel:nth-child(3)::before { background: var(--mint); }
+.home-wrap .panel:nth-child(4)::before { background: var(--amber); }
+.home-wrap .panel:nth-child(5)::before { background: var(--violet); }
+.home-wrap .panel h3 .ic { color: var(--sky); }
+.home-wrap .panel:nth-child(2) h3 .ic { color: var(--coral); }
+.home-wrap .panel:nth-child(3) h3 .ic { color: var(--mint); }
+.home-wrap .panel:nth-child(4) h3 .ic { color: var(--amber); }
+
+/* server name and chat title carry a two-tone gradient */
+#side-title { background: linear-gradient(90deg, #ffd0da, var(--coral) 45%, var(--sky)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+.topbar h3, .topbar .ch-title { background: linear-gradient(90deg, #fff, var(--sky)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+
+/* ---- pointer feedback: lift, glow, ripple, spotlight ---- */
+.btn, .icon-btn, .rail-btn, .nav-item, .ch-item, .dm-item, .friend-card, .disc-card, .mem, .msg, .tabbar button { transition: transform .16s cubic-bezier(.2,.8,.3,1), background-color .16s, box-shadow .16s, border-color .16s, color .16s; }
+.btn:hover { transform: translateY(-1px); box-shadow: 0 8px 22px -12px rgba(89, 194, 255, .8), 0 0 0 1px rgba(89, 194, 255, .25); }
+.btn:active { transform: translateY(0) scale(.97); }
+.btn.ghost:hover { box-shadow: 0 6px 18px -12px rgba(89, 194, 255, .8), inset 0 0 0 1px var(--sky); }
+.icon-btn:hover { transform: translateY(-1px); box-shadow: 0 0 0 1px var(--line2), 0 4px 14px -8px var(--sky); }
+.icon-btn:active { transform: scale(.9); }
+.rail-btn:hover { transform: translateY(-2px) scale(1.04); box-shadow: 0 6px 18px -8px rgba(89, 194, 255, .7); }
+.rail-btn:active { transform: scale(.93); }
+.rail-btn.action:hover { box-shadow: 0 6px 18px -8px rgba(78, 224, 192, .8); }
+.nav-item:hover { background: rgba(89, 194, 255, .1); box-shadow: inset 3px 0 0 var(--sky); }
+.ch-item:hover { background: rgba(78, 224, 192, .09); box-shadow: inset 3px 0 0 var(--mint); }
+.dm-item:hover { background: rgba(255, 143, 176, .1); box-shadow: inset 3px 0 0 var(--coral); }
+.friend-card:hover, .disc-card:hover { box-shadow: 0 12px 30px -18px rgba(89, 194, 255, .9), 0 0 0 1px var(--line2); }
+.mem:hover { background: rgba(89, 194, 255, .08); border-radius: 8px; }
+.msg:hover { background: rgba(89, 194, 255, .045); box-shadow: inset 3px 0 0 rgba(89, 194, 255, .45); }
+.tabbar button:hover { color: #fff; background: rgba(89, 194, 255, .12); }
+.tabbar button:active { transform: scale(.94); }
+.mrel { position: relative; overflow: hidden; }
+.mripple { position: absolute; left: 0; top: 0; width: var(--rs, 120px); height: var(--rs, 120px); margin: calc(var(--rs, 120px) / -2) 0 0 calc(var(--rs, 120px) / -2); border-radius: 50%; pointer-events: none; z-index: 0; background: radial-gradient(circle, rgba(255, 255, 255, .5), rgba(89, 194, 255, .25) 45%, transparent 70%); opacity: .9; transform: scale(.15); animation: mrip .5s ease-out forwards; }
+@keyframes mrip { to { transform: scale(1); opacity: 0; } }
+.mspot { position: fixed; left: 0; top: 0; width: 420px; height: 420px; margin: -210px 0 0 -210px; border-radius: 50%; pointer-events: none; z-index: 4; opacity: 0; transition: opacity .35s; background: radial-gradient(circle, rgba(89, 194, 255, .13), rgba(255, 143, 176, .05) 42%, transparent 68%); }
+@media (prefers-reduced-motion: reduce) { .mspot { display: none; } .mripple { animation: none; } .btn, .icon-btn, .rail-btn, .nav-item, .ch-item, .dm-item, .friend-card, .disc-card, .mem, .msg, .tabbar button { transition: none; } }

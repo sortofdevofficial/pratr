@@ -716,3 +716,35 @@ $('emoji-btn').onclick = () => {
 };
 document.addEventListener('click', (e) => { if (!e.target.closest('#emoji-pop, #emoji-btn')) pop.classList.add('hidden'); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') pop.classList.add('hidden'); });
+
+/* ---------- pointer feedback: press ripple and a soft cursor spotlight ---------- */
+(() => {
+    const fine = matchMedia('(pointer: fine)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!fine) return;
+    document.addEventListener('pointerdown', e => {
+        const t = e.target.closest('button, .btn, .rail-btn, .nav-item, .ch-item, .dm-item, .friend-card, .disc-card, .tabbar button');
+        if (!t || t.disabled) return;
+        const r = t.getBoundingClientRect();
+        const s = document.createElement('span');
+        s.className = 'mripple';
+        s.style.left = (e.clientX - r.left) + 'px';
+        s.style.top = (e.clientY - r.top) + 'px';
+        s.style.setProperty('--rs', Math.max(r.width, r.height) + 'px');
+        t.classList.add('mrel');
+        t.append(s);
+        setTimeout(() => s.remove(), 520);
+    }, { passive: true });
+    const spot = document.createElement('div');
+    spot.className = 'mspot';
+    document.body.append(spot);
+    let raf = 0, mx = 0, my = 0;
+    addEventListener('pointermove', e => {
+        mx = e.clientX; my = e.clientY;
+        if (!raf) raf = requestAnimationFrame(() => {
+            raf = 0;
+            spot.style.transform = `translate(${mx}px, ${my}px)`;
+            spot.style.opacity = '1';
+        });
+    }, { passive: true });
+    document.addEventListener('pointerleave', () => { spot.style.opacity = '0'; });
+})();
