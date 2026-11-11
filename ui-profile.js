@@ -261,7 +261,7 @@ function openTransfer() {
             closeModals(); renderAll();
             toast(`Ownership transferred to ${out.data.username}.`);
         };
-        r.append(avatar(m.username, 'sm', m.avatar), h('span', '', m.username || 'Member'), b);
+        r.append(avatar(m.username, 'sm', m.avatar), userLink(m), b);
         box.append(r);
     });
 }
@@ -276,8 +276,9 @@ async function openVoiceTime() {
     if (!out.res.ok) box.append(h('div', 'side-empty', out.data.error || 'Could not load voice time.'));
     else if (!out.data.stats.length) box.append(h('div', 'side-empty', 'Nobody has spent time in voice yet.'));
     else out.data.stats.forEach((s, i) => {
-        const r = h('div', 'logrow');
-        r.append(h('b', '', `${i + 1}.`), h('span', '', `${s.username}${s.plus ? ' ✦' : ''} — ${fmtDur(s.seconds)} over ${s.sessions} session${s.sessions === 1 ? '' : 's'}`), h('time', '', `last ${stamp(s.last)}`));
+        const r = h('div', 'logrow'), txt = h('span');
+        txt.append(userLink(s.user || { id: s.id, username: s.username }), ` — ${fmtDur(s.seconds)} over ${s.sessions} session${s.sessions === 1 ? '' : 's'}`);
+        r.append(h('b', '', `${i + 1}.`), txt, h('time', '', `last ${stamp(s.last)}`));
         box.append(r);
     });
     const hs = await post({ action: 'voice-history', id: S.server.id });
@@ -297,15 +298,15 @@ async function openBoosts() {
     if (!S.server) return;
     $('boost-msg').textContent = '';
     $('boost-msg').style.color = '';
-    S.oc = true; S.statsOpen = false;
+    S.page = 'overclock';
     renderAll();
     syncUrl();
     closeNav();
     await loadBoosts();
 }
 function closeBoosts() {
-    if (!S.oc) return;
-    S.oc = false;
+    if (S.page !== 'overclock') return;
+    S.page = '';
     renderAll();
     syncUrl();
     $('chat-input').focus();
@@ -371,6 +372,7 @@ function paintBoosts() {
         const tier = h('em', 'perk-tier', `${p.at} overclock${p.at === 1 ? '' : 's'}`);
         side.append(tier);
         if (!unlocked) side.append(h('span', 'perk-lock', `${p.at - d.boosts} more`));
+        else if (p.k === 'pages') side.append(h('span', 'perk-on', 'In the sidebar'));
         else if (owner) {
             const btn = h('button', 'btn ghost sm', active ? 'Disable' : 'Enable');
             btn.type = 'button';
@@ -389,7 +391,11 @@ function paintBoosts() {
     const hist = $('boost-hist');
     hist.textContent = '';
     if (!d.history.length) hist.append(h('div', 'side-empty', 'No overclocks yet. Be the first to overclock this server.'));
-    else d.history.forEach(x => { const r = h('div', 'logrow'); r.append(h('time', '', stamp(x.t)), h('span', '', `Overclocked ×${x.n || 1} by ${x.by}`)); hist.append(r); });
+    else d.history.forEach(x => {
+        const r = h('div', 'logrow'), txt = h('span', '', `Overclocked ×${x.n || 1} by `);
+        txt.append(userLink(x.user || { username: x.by }));
+        r.append(h('time', '', stamp(x.t)), txt); hist.append(r);
+    });
 
     const grants = $('boost-grants');
     grants.textContent = '';
@@ -633,7 +639,7 @@ async function openForward(m) {
     if (!S.friends.length) box.append(h('div', 'side-empty', 'Add a friend to forward to a direct message.'));
     S.friends.forEach(f => {
         const b = h('button', 'fwd-item');
-        b.append(userAva(f, 'sm'), h('span', '', f.username || f.email));
+        b.append(userAva(f, 'sm'), userLink(f));
         b.onclick = () => forwardTo('dm', f.id, null, m);
         box.append(b);
     });

@@ -19,7 +19,7 @@ function voiceFlag(p) { if (!p.df && !p.mu) return null; const i = h('i', 'vflag
 function voiceAva(p, cls) { const a = avatar(p.username, cls, p.avatar); a.dataset.vu = p.id; a.classList.toggle('speaking', V.speak.has(p.id)); return a; }
 function voiceRow(p) {
     const r = h('div', 'vrow');
-    r.append(voiceAva(p, 'xs'), h('span', '', p.username || 'Member'));
+    r.append(voiceAva(p, 'xs'), userLink(p));
     const f = voiceFlag(p); if (f) r.append(f);
     return r;
 }
@@ -41,7 +41,7 @@ function renderVoiceStage() {
     if (!list.length) grid.append(h('div', 'vempty', 'Nobody is in this voice channel yet.'));
     list.forEach(p => {
         const t = h('div', 'vtile'), n = h('div', 'vname');
-        n.append(h('span', '', p.username || 'Member'));
+        n.append(userLink(p));
         const f = voiceFlag(p); if (f) n.append(f);
         t.append(voiceAva(p, 'xl'), n);
         grid.append(t);

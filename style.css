@@ -801,6 +801,13 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .sp-event-what { color: var(--mut); }
 .sp-event-time { margin-left: auto; flex: none; color: var(--dim); font-size: 11.5px; }
 
+/* Names are profile-card buttons everywhere; the underline only appears on hover so lists stay calm. */
+.userlink { cursor: pointer; }
+.userlink:hover, .userlink:focus-visible { text-decoration: underline; text-underline-offset: 2px; }
+.wl-item.locked { color: var(--dim); }
+.wl-item.locked .ic { opacity: .4; }
+.lock-count { flex: none; margin-left: auto; font-size: 10.5px; font-weight: 700; color: var(--dim); border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px; }
+
 @media (max-width: 700px) {
   .sp-charts, .sp-boards, .sp-community { grid-template-columns: 1fr; }
   .ch-head .icon-btn { opacity: .7; }

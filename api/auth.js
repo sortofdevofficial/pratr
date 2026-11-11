@@ -1,5 +1,5 @@
 // The handler lives here; models, helpers and connection setup live in ../lib/core.js.
-const { mongoose, bcrypt, jwt, crypto, nowSeconds, onlineCut, statusOf, stOf, clientIp, geoOf, deviceOf, clientInfo, infoText, hit, DUMMY_HASH, CURRENT_SCHEMA_VERSION, ensureSchemaVersion, withV, connectDB, User, Pending, Session, Msg, Server, Channel, Voice, VStat, Signal, Log, Read, Meta, Friend, Invite, Boost, lg, VOICE_LIVE, vLive, endVoice, reapMyVoice, reapVoice, readKey, voiceRoom, shortCode, findInvite, sendOtp, nextId, createWithId, isAdmin, areFriends, isMember, srv, okImg, MONTH, plusOn, BOOST_PERKS, boostTier, SERVER_FONTS, ACCENTS, cleanColour } = require('../lib/core');
+const { mongoose, bcrypt, jwt, crypto, nowSeconds, onlineCut, statusOf, stOf, clientIp, geoOf, deviceOf, clientInfo, infoText, hit, DUMMY_HASH, CURRENT_SCHEMA_VERSION, ensureSchemaVersion, withV, connectDB, User, Pending, Session, Msg, Server, Channel, Voice, VStat, Signal, Log, Read, Meta, Friend, Invite, Boost, lg, VOICE_LIVE, vLive, endVoice, reapMyVoice, reapVoice, readKey, voiceRoom, shortCode, findInvite, sendOtp, nextId, createWithId, isAdmin, areFriends, isMember, srv, cardOf, okImg, MONTH, plusOn, BOOST_PERKS, boostTier, SERVER_FONTS, ACCENTS, cleanColour } = require('../lib/core');
 const { overclockActions, migrateAction, voiceActions, statsActions, layoutActions, OVERCLOCK_ACTIONS, STATS_ACTIONS, LAYOUT_ACTIONS } = require('./actions');
 
 // Plus plans end on their own. Expiring and the monthly 2-boost grant are lazy: they run on the next
@@ -392,7 +392,7 @@ module.exports = async function handler(req, res) {
       const server = await Server.findOne({ _id: Number(id), m: auth.userId }).lean();
       if (!server) return res.status(403).json({ error: 'Not a member.' });
       const users = await User.find({ _id: { $in: server.m } }).select('n av b ls ps pl pe st sx ac pg nf vt mc').lean();
-      return res.status(200).json({ owner: server.o, members: users.map(u => { const plus = plusOn(u); return { id: u._id, username: u.n, avatar: u.av, bio: plus ? (u.b || '') : (u.b || '').slice(0, 160), status: statusOf(u), plus, statusText: stOf(u), accent: plus ? (u.ac || '') : '', glow: plus ? (u.pg || '') : '', nameFont: plus ? (u.nf || '') : '', online: statusOf(u) !== 'offline', voice: u.vt || 0, msgs: u.mc || 0 }; }) });
+      return res.status(200).json({ owner: server.o, members: users.map(u => cardOf(u)) });
     }
 
     if (action === 'channel-delete') {
@@ -598,9 +598,9 @@ module.exports = async function handler(req, res) {
       const stats = rows.map(r => ({ id: r.u, seconds: r.t + (liveSecs[r.u] || 0), sessions: r.n, last: r.last }));
       for (const uid of Object.keys(liveSecs)) if (!rows.some(r => r.u === Number(uid))) stats.push({ id: Number(uid), seconds: liveSecs[uid], sessions: 0, last: nowSeconds() });
       stats.sort((a, b) => b.seconds - a.seconds);
-      const us = await User.find({ _id: { $in: stats.slice(0, 25).map(a => a.id) } }).select('n av pl pe').lean();
+      const us = await User.find({ _id: { $in: stats.slice(0, 25).map(a => a.id) } }).select('n av b ls ps st sx pl pe ac pg nf vt mc').lean();
       const m = Object.fromEntries(us.map(u => [u._id, u]));
-      return res.status(200).json({ mine: { voice: (my && my.vt) || 0, msgs: (my && my.mc) || 0 }, stats: stats.slice(0, 25).filter(a => m[a.id]).map(a => ({ id: a.id, username: m[a.id].n, avatar: m[a.id].av || '', plus: plusOn(m[a.id]), seconds: a.seconds, sessions: a.sessions, last: a.last })) });
+      return res.status(200).json({ mine: { voice: (my && my.vt) || 0, msgs: (my && my.mc) || 0 }, stats: stats.slice(0, 25).filter(a => m[a.id]).map(a => ({ id: a.id, username: m[a.id].n, avatar: m[a.id].av || '', plus: plusOn(m[a.id]), user: cardOf(m[a.id]), seconds: a.seconds, sessions: a.sessions, last: a.last })) });
     }
 
     if (action === 'voice-history') { // everyone's own recent voice sessions in a server; the log itself is permanent

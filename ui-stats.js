@@ -4,7 +4,7 @@
 
 async function openOverview() {
     if (!S.server) return;
-    S.statsOpen = true; S.oc = false;
+    S.page = 'overview';
     renderAll();
     syncUrl();
     closeNav();
@@ -12,11 +12,97 @@ async function openOverview() {
     renderMain();
 }
 function closeOverview() {
-    if (!S.statsOpen) return;
-    S.statsOpen = false;
+    if (S.page !== 'overview') return;
+    S.page = '';
     renderAll();
     syncUrl();
     $('chat-input').focus();
+}
+
+/* ---------- welcome & leave pages (unlocked by overclocks) ---------- */
+function openWelcome() { openActivityPage('welcome'); }
+function openLeave() { openActivityPage('leave'); }
+async function openActivityPage(kind) {
+    if (!S.server) return;
+    if ((S.server.boosts || 0) < SERVER_PAGES_AT) {
+        toast(`${kind === 'welcome' ? 'Welcome' : 'Leave'} page unlocks at ${SERVER_PAGES_AT} overclocks.`, true);
+        return openBoosts();
+    }
+    S.page = kind;
+    renderAll();
+    syncUrl();
+    closeNav();
+    await loadStats();
+}
+function closeActivityPage() {
+    if (S.page !== 'welcome' && S.page !== 'leave') return;
+    S.page = '';
+    renderAll();
+    syncUrl();
+    $('chat-input').focus();
+}
+$('wv-back').onclick = () => closeActivityPage();
+
+function renderActivityPage(kind) {
+    const welcome = kind === 'welcome';
+    $('wv-title').textContent = welcome ? 'Welcome' : 'Leave';
+    const st = S.stats;
+    const box = $('wv-body');
+    box.textContent = '';
+    if (!st) {
+        $('wv-sub').textContent = welcome ? 'Say hello to everyone who joins.' : 'Who left and when.';
+        box.append(h('div', 'stat-loading', 'Reading this server’s activity…'));
+        return;
+    }
+    const joins = (st.activity || []).filter(a => a.type === 'join');
+    const exits = (st.activity || []).filter(a => a.type !== 'join');
+    const list = welcome ? joins : exits;
+    const count = welcome ? (st.joinedWeek || 0) : (st.leftWeek || 0);
+    $('wv-sub').textContent = welcome
+        ? `${st.name || S.server.name} · ${count} joined this week · ${st.members || 0} members in total`
+        : `${st.name || S.server.name} · ${count} left this week · ${st.members || 0} members right now`;
+
+    const head = h('div', 'stat-head');
+    const big = h('div', 'stat-big');
+    big.append(
+        h('span', 'stat-label', welcome ? 'New this week' : 'Left this week'),
+        h('strong', '', String(count)),
+        h('small', '', welcome ? `${st.online || 0} online now · ${st.voice || 0} in voice` : `${st.members || 0} still here · ${st.online || 0} online`)
+    );
+    head.append(big);
+    if (welcome) {
+        const invite = h('button', 'btn primary sm', 'Invite people'); invite.type = 'button';
+        invite.innerHTML = ICON.plus + 'Invite people';
+        invite.onclick = () => openInvite();
+        const actions = h('div', 'stat-head-actions'); actions.append(invite);
+        head.append(actions);
+    }
+    box.append(head);
+
+    const card = h('section', 'stat-card');
+    const chead = h('div', 'stat-card-head');
+    chead.append(h('h3', '', welcome ? 'Recent arrivals' : 'Recent departures'), h('small', 'hint', welcome ? 'Newest first' : 'Newest first'));
+    card.append(chead);
+    if (!list.length) {
+        card.append(h('p', 'hint', welcome
+            ? 'Nobody has joined yet — share an invite to get people in.'
+            : 'Nobody has left. A nice, quiet server.'));
+        box.append(card);
+        return;
+    }
+    const feed = h('div', 'sp-events');
+    list.forEach(ev => {
+        const row = h('div', 'sp-event ' + (ev.type === 'join' ? 'in' : 'out'));
+        row.append(
+            h('span', 'sp-event-ic', ev.type === 'join' ? '+' : '−'),
+            userLink(ev.user || { id: ev.id, username: ev.username }, 'sp-event-name'),
+            h('span', 'sp-event-what', ev.type === 'join' ? 'joined' : ev.type === 'kick' ? 'was removed' : 'left'),
+            h('time', 'sp-event-time', ago(ev.t))
+        );
+        feed.append(row);
+    });
+    card.append(feed);
+    box.append(card);
 }
 
 function renderOverview() {
@@ -58,7 +144,7 @@ function paintOverview() {
         statTile('speaker', 'In voice', st.voice || 0),
         statTile('chat', 'Messages this week', st.weekMsgs || 0),
         statTile('bolt', 'Overclocks', st.boosts || 0),
-        statTile('chart', 'Perk tier', `${st.tier || 0}/6`)
+        statTile('chart', 'Perk tier', `${st.tier || 0}/${st.maxTier || 7}`)
     );
 
     const charts = h('div', 'sp-charts');
@@ -73,9 +159,9 @@ function paintOverview() {
 
     const boards = h('div', 'sp-boards');
     boards.append(
-        peopleCard('Top boosters this month', (st.topBoosters || []).map(b => ({ name: b.username, value: `${b.n} ✦` })), 'No overclocks this month yet.'),
-        peopleCard('Most time in voice', (st.topVoice || []).map(v => ({ name: v.username, value: fmtDur(v.t || 0) })), 'No voice sessions yet.'),
-        peopleCard('Top chatters this week', (st.topChatters || []).map(c => ({ name: c.username, value: `${c.n} message${c.n === 1 ? '' : 's'}` })), 'No messages this week yet.')
+        peopleCard('Top boosters this month', (st.topBoosters || []).map(b => ({ name: b.username, user: b.user, value: `${b.n} ✦` })), 'No overclocks this month yet.'),
+        peopleCard('Most time in voice', (st.topVoice || []).map(v => ({ name: v.username, user: v.user, value: fmtDur(v.t || 0) })), 'No voice sessions yet.'),
+        peopleCard('Top chatters this week', (st.topChatters || []).map(c => ({ name: c.username, user: c.user, value: `${c.n} message${c.n === 1 ? '' : 's'}` })), 'No messages this week yet.')
     );
 
     const foot = h('p', 'stat-foot');
@@ -116,14 +202,14 @@ function activityCard(st) {
     const head = h('div', 'stat-card-head');
     head.append(h('h3', '', 'Welcome & leaves'), h('small', 'hint', `${st.joinedWeek || 0} joined · ${st.leftWeek || 0} left this week`));
     card.append(head);
-    const list = st.activity || [];
+    const list = (st.activity || []).slice(0, 12);
     if (!list.length) { card.append(h('p', 'hint', 'No joins or leaves yet — invites show up here as they happen.')); return card; }
     const feed = h('div', 'sp-events');
     list.forEach(ev => {
         const row = h('div', 'sp-event ' + (ev.type === 'join' ? 'in' : 'out'));
         row.append(
             h('span', 'sp-event-ic', ev.type === 'join' ? '+' : '−'),
-            h('span', 'sp-event-name', ev.username || 'Member'),
+            userLink(ev.user || { id: ev.id, username: ev.username }, 'sp-event-name'),
             h('span', 'sp-event-what', ev.type === 'join' ? 'joined' : ev.type === 'kick' ? 'was removed' : 'left'),
             h('time', 'sp-event-time', ago(ev.t))
         );
@@ -212,7 +298,7 @@ function peopleCard(title, rows, empty) {
     const list = h('div', 'stat-people');
     rows.forEach((r, i) => {
         const row = h('div', 'stat-person');
-        row.append(h('em', 'stat-rank', String(i + 1)), h('span', '', r.name || 'Member'), h('strong', '', r.value));
+        row.append(h('em', 'stat-rank', String(i + 1)), userLink(r.user || { username: r.name }), h('strong', '', r.value));
         list.append(row);
     });
     card.append(list);

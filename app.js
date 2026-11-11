@@ -29,8 +29,10 @@ const S = {
     me: null, servers: [], friends: [], requests: { in: [], out: [] }, view: 'home',
     server: null, channels: [], channelId: null, dm: null, members: [],
     last: {}, chLoaded: false, sig: '', sending: false, membersOn: (() => { try { const v = localStorage.getItem('members'); if (v) return v === '1'; } catch {} return window.innerWidth > 760; })(),
-    login: true, t1: null, t2: null, t3: null, t4: null, t5: null, maxId: {}, fullAt: {}, voice: {}, reply: null, oc: false, statsOpen: false, cats: [], stats: null
+    login: true, t1: null, t2: null, t3: null, t4: null, t5: null, maxId: {}, fullAt: {}, voice: {}, reply: null, page: '', cats: [], stats: null
 };
+// Built-in server pages live in the sidebar. Welcome and leave unlock at this overclock count (see BOOST_PERKS).
+const SERVER_PAGES_AT = 7;
 const V = { on: false, sid: null, chId: null, name: '', sname: '', stream: null, peers: new Map(), watch: new Map(), speak: new Set(), early: {}, cool: {}, joined: {}, ice: [], muted: false, deaf: false, mutedBefore: false, sig: '', ctx: null };
 
 /* ---------- helpers ---------- */
@@ -42,6 +44,24 @@ function statEl(on, total) { const s = h('small', 'stat'); s.append(h('i', 'pdot
 const bg = (url, name) => url ? `center/cover url("${url}")` : color(name || '?');
 function avatar(name, cls = '', url = '') { const a = h('div', 'ava ' + cls, url ? '' : ini(name)); a.style.background = bg(url, name); return a; }
 function userAva(u, cls = '') { const a = avatar(u.username || u.email, cls, u.avatar); if (u.plus) { a.classList.add('plus'); const c = u.glow || u.accent; if (c) a.style.setProperty('--ac', c); } return a; }
+/* Any name in the app is a button: it stops the surrounding row's own click and opens the profile card. */
+function userLink(u, cls = '', tag = 'span') {
+    // Prefer the full card we already hold, so a bare {id, username} from a log still opens a rich profile.
+    if (u && typeof u === 'object' && u.id != null) u = S.members.find(m => m.id === u.id) || (S.friends || []).find(f => f.id === u.id) || u;
+    const name = (u && typeof u === 'object' ? (u.username || u.email) : u) || 'Member';
+    const el = h(tag, 'userlink' + (cls ? ' ' + cls : ''), name);
+    el.tabIndex = 0;
+    el.setAttribute('role', 'button');
+    el.title = `Open ${name}`;
+    if (u && typeof u === 'object') {
+        el.style.color = nameColour(u);
+        if (u.plus) { el.classList.add('plus-name'); el.style.fontFamily = fontOf(u.nameFont); }
+    }
+    const open = (e) => { e.stopPropagation(); e.preventDefault(); openUserCard(u); };
+    el.onclick = open;
+    el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') open(e); };
+    return el;
+}
 const nameColour = (u) => u.plus && u.accent ? ink(u.accent) : u.plus ? '#ffd36b' : color(u.username || u.email).replace('48%', '70%');
 // Accent colours are picked freely, so lighten near-black ones before using them as text.
 function ink(c) {
@@ -221,7 +241,7 @@ function startTimers() {
     S.t3 = setInterval(() => { if (!document.hidden) quiet(loadVoice); }, 2500);
     clearInterval(S.t4); S.t4 = setInterval(() => quiet(pollUnread), 5000); quiet(pollUnread); // also runs hidden, for notifications
     S.t5 = setInterval(() => { if (!document.hidden && S.view === 'server' && S.server) quiet(loadStats); }, 30000);
-    S.t1 = setInterval(() => { if (!document.hidden && S.view !== 'home' && !S.oc && !S.statsOpen) quiet(() => loadMessages(false)); }, 3000);
+    S.t1 = setInterval(() => { if (!document.hidden && S.view !== 'home' && !S.page) quiet(() => loadMessages(false)); }, 3000);
     S.t2 = setInterval(() => {
         if (document.hidden) return;
         quiet(async () => {
@@ -290,14 +310,14 @@ async function loadStats() {
     if (!out.res.ok || !S.server || S.server.id !== sid) return;
     S.stats = out.data;
     renderSide();
-    if (S.view === 'server' && S.statsOpen) renderMain();
+    if (S.view === 'server' && S.page) renderMain();
 }
 async function loadMessages(force = false) {
     const key = chatKey();
     if (!key) return;
     const isServer = S.view === 'server';
     if (isServer && S.channelId == null) return;
-    if (S.oc || S.statsOpen) return; // server pages cover the chat area
+    if (S.page) return; // server pages cover the chat area
     const cur = isServer ? (curChannel() || {}) : null;
     if (cur && cur.kind === 'v') return; // voice channels have no message history
     const after = S.maxId[key];
@@ -322,7 +342,7 @@ $('scrim').onclick = closeNav;
 $('rail-home').onclick = () => { goHome(); closeNav(); };
 $('nav-friends').onclick = () => { goHome(); closeNav(); };
 $('rail-discover').onclick = () => {
-    S.view = 'discover'; S.server = null; S.dm = null; S.channels = []; S.cats = []; S.channelId = null; S.members = []; S.sig = ''; S.oc = false; S.statsOpen = false;
+    S.view = 'discover'; S.server = null; S.dm = null; S.channels = []; S.cats = []; S.channelId = null; S.members = []; S.sig = ''; S.page = '';
     renderAll(); loadDiscover(); syncUrl(); closeNav();
 };
 
@@ -357,13 +377,13 @@ async function loadDiscover() {
 $('disc-q').oninput = () => { clearTimeout(discT); discT = setTimeout(loadDiscover, 250); };
 
 function goHome() {
-    S.view = 'home'; S.server = null; S.dm = null; S.channels = []; S.cats = []; S.channelId = null; S.members = []; S.sig = ''; S.oc = false; S.statsOpen = false; S.stats = null;
+    S.view = 'home'; S.server = null; S.dm = null; S.channels = []; S.cats = []; S.channelId = null; S.members = []; S.sig = ''; S.page = ''; S.stats = null;
     renderAll(); syncUrl();
 }
 async function openServer(id) {
     const s = S.servers.find(x => x.id === id);
     if (!s) return;
-    S.view = 'server'; S.server = s; S.dm = null; S.chLoaded = false; S.channels = []; S.cats = []; S.channelId = null; S.members = []; S.sig = ''; S.oc = false; S.statsOpen = false; S.stats = null;
+    S.view = 'server'; S.server = s; S.dm = null; S.chLoaded = false; S.channels = []; S.cats = []; S.channelId = null; S.members = []; S.sig = ''; S.page = ''; S.stats = null;
     $('messages').textContent = '';
     renderAll();
     await loadChannels(true);
@@ -375,7 +395,7 @@ async function openServer(id) {
     closeNav();
 }
 function openDM(user) {
-    S.view = 'dm'; S.dm = S.friends.find(x => x.id === user.id) || user; S.server = null; S.channels = []; S.cats = []; S.channelId = null; S.sig = ''; S.oc = false; S.statsOpen = false; S.stats = null;
+    S.view = 'dm'; S.dm = S.friends.find(x => x.id === user.id) || user; S.server = null; S.channels = []; S.cats = []; S.channelId = null; S.sig = ''; S.page = ''; S.stats = null;
     paintSig.delete('dmcard'); // always redraw the side card, never show the previous person
     $('messages').textContent = '';
     renderAll();
@@ -385,7 +405,7 @@ function openDM(user) {
     $('chat-input').focus();
 }
 function selectChannel(id) {
-    S.channelId = id; S.last[S.server.id] = id; S.sig = ''; S.oc = false; S.statsOpen = false;
+    S.channelId = id; S.last[S.server.id] = id; S.sig = ''; S.page = '';
     $('messages').textContent = '';
     renderSide(); renderMain();
     loadMessages(true); // it marks the conversation read once the real cursor is known
@@ -400,7 +420,7 @@ let navSilent = false; // true while the current view came from the address bar,
 function routePath() {
     if (S.view === 'discover') return '/discover';
     if (S.view === 'dm' && S.dm) return '/dm/' + encodeURIComponent(S.dm.username || S.dm.id);
-    if (S.view === 'server' && S.server) return '/channels/' + S.server.id + (S.oc ? '/overclock' : S.statsOpen ? '/overview' : S.channelId != null ? '/' + S.channelId : '');
+    if (S.view === 'server' && S.server) return '/channels/' + S.server.id + (S.page ? '/' + S.page : S.channelId != null ? '/' + S.channelId : '');
     return '/friends';
 }
 function syncUrl(replace) {
@@ -423,6 +443,8 @@ async function goLink(path) {
         await openServer(sid);
         if (parts[2] === 'overclock') return openBoosts();
         if (parts[2] === 'overview') return openOverview();
+        if (parts[2] === 'welcome') return openWelcome();
+        if (parts[2] === 'leave') return openLeave();
         const cid = Number(parts[2]);
         const c = S.channels.find(x => x.id === cid);
         if (!c) return;
@@ -431,7 +453,7 @@ async function goLink(path) {
         return;
     }
     if (parts[0] === 'discover') {
-        S.view = 'discover'; S.server = null; S.dm = null; S.channels = []; S.cats = []; S.channelId = null; S.members = []; S.sig = ''; S.oc = false; S.statsOpen = false;
+        S.view = 'discover'; S.server = null; S.dm = null; S.channels = []; S.cats = []; S.channelId = null; S.members = []; S.sig = ''; S.page = '';
         renderAll(); loadDiscover(); syncUrl();
         return;
     }
@@ -476,6 +498,7 @@ function paintReplyBar() {
     if (r && r.key !== chatKey()) S.reply = null;
     if (!S.reply) { bar.classList.add('hidden'); return; }
     $('rb-name').textContent = S.reply.m.author.username;
+    $('rb-name').onclick = () => openUserCard(S.reply.m.author);
     $('rb-snip').textContent = snip(S.reply.m.text);
     bar.classList.remove('hidden');
 }
@@ -559,7 +582,9 @@ function linkEmbed(path) { // a rich card for pratr links pasted in chat
     if (parts[0] === 'dm' && parts[1]) {
         const key = decodeURIComponent(parts[1]).toLowerCase();
         const u = S.friends.find(f => String(f.username || '').toLowerCase() === key || String(f.id) === key);
-        meta.append(h('strong', '', u ? `Direct message with ${u.username}` : 'Direct message'), h('span', 'lnk', 'pratr link'));
+        const dmName = h('strong', '', u ? 'Direct message with ' : 'Direct message');
+        if (u) dmName.append(userLink(u));
+        meta.append(dmName, h('span', 'lnk', 'pratr link'));
         box.append(userAva(u || { username: key }, 'sm'), meta, btn);
         return box;
     }

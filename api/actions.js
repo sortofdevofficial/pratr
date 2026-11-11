@@ -1,5 +1,5 @@
 // Server-side action groups split out of auth.js so neither file grows unwieldy.
-const { ACCENTS, cleanColour, MONTH, nowSeconds, isAdmin, isMember, createWithId, plusOn, boostTier, BOOST_PERKS, SERVER_FONTS, statusOf, stOf, srv, lg, reapVoice, endVoice, vLive, voiceRoom, User, Msg, Server, Channel, SStat, Voice, VStat, Signal, Log, Read, Meta, Friend, Boost } = require('../lib/core');
+const { ACCENTS, cleanColour, MONTH, nowSeconds, isAdmin, isMember, createWithId, plusOn, boostTier, BOOST_PERKS, SERVER_FONTS, statusOf, stOf, srv, cardOf, lg, reapVoice, endVoice, vLive, voiceRoom, User, Msg, Server, Channel, SStat, Voice, VStat, Signal, Log, Read, Meta, Friend, Boost } = require('../lib/core');
 
 const OVERCLOCK_ACTIONS = new Set(['flare-grant', 'boost-info', 'server-boost', 'server-perk', 'boost-history']);
 const STATS_ACTIONS = new Set(['server-stats']);
@@ -29,32 +29,34 @@ async function statsActions({ body, auth, res }) {
       Msg.countDocuments({ s: sid, t: { $gt: weekAgo } }),
       Msg.aggregate([{ $match: { s: sid, t: { $gte: since } } }, { $group: { _id: { $floor: { $divide: ['$t', 86400] } }, n: { $sum: 1 } } }, { $sort: { _id: 1 } }]),
       Msg.aggregate([{ $match: { s: sid, t: { $gt: weekAgo } } }, { $group: { _id: '$a', n: { $sum: 1 } } }, { $sort: { n: -1 } }, { $limit: 5 }]),
-      Log.find({ s: sid, ty: { $in: ['member_join', 'member_leave', 'member_kick'] } }).sort({ t: -1 }).limit(12).select('t ty an un').lean(),
+      Log.find({ s: sid, ty: { $in: ['member_join', 'member_leave', 'member_kick'] } }).sort({ t: -1 }).limit(40).select('t ty a u an un').lean(),
       Log.countDocuments({ s: sid, ty: 'member_join', t: { $gt: weekAgo } }),
       Log.countDocuments({ s: sid, ty: { $in: ['member_leave', 'member_kick'] }, t: { $gt: weekAgo } })
     ]);
-    const nm = Object.fromEntries(users.map(u => [u._id, u.n]));
-    const missing = [...new Set([...boostRows.map(b => b.u), ...voiceTop.map(v => v.u), ...chatterRows.map(c => c._id)].filter(u => u != null && !nm[u]))];
-    if (missing.length) (await User.find({ _id: { $in: missing } }).select('n').lean()).forEach(u => { nm[u._id] = u.n; });
+    const cards = Object.fromEntries(users.map(u => [u._id, cardOf(u)]));
+    const actorIds = memberLogs.map(l => (l.ty === 'member_kick' ? l.u : l.a));
+    const missing = [...new Set([...boostRows.map(b => b.u), ...voiceTop.map(v => v.u), ...chatterRows.map(c => c._id), ...actorIds].filter(u => u != null && !cards[u]))];
+    if (missing.length) (await User.find({ _id: { $in: missing } }).select('n av b ls ps st sx pl pe ac pg nf vt mc').lean()).forEach(u => { cards[u._id] = cardOf(u); });
+    const card = (uid, fallback) => cards[uid] || { id: uid, username: fallback || 'Member' };
     const byUser = {};
     for (const b of boostRows) byUser[b.u] = (byUser[b.u] || 0) + (b.n || 1);
-    const topBoosters = Object.entries(byUser).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([u, n]) => ({ username: nm[u] || 'Member', n }));
-    const memberList = users.map(u => {
-      const plus = plusOn(u);
-      return { id: u._id, username: u.n, avatar: u.av, bio: plus ? (u.b || '') : (u.b || '').slice(0, 160), status: statusOf(u), plus, statusText: stOf(u), accent: plus ? (u.ac || '') : '', glow: plus ? (u.pg || '') : '', nameFont: plus ? (u.nf || '') : '', online: statusOf(u) !== 'offline', voice: u.vt || 0, msgs: u.mc || 0 };
+    const topBoosters = Object.entries(byUser).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([u, n]) => ({ username: card(Number(u)).username, n, user: card(Number(u)) }));
+    const memberList = users.map(cardOf);
+    const activity = memberLogs.map(l => {
+      const who = card(l.ty === 'member_kick' ? l.u : l.a, (l.ty === 'member_kick' ? l.un : l.an));
+      return { t: l.t, type: l.ty === 'member_join' ? 'join' : l.ty === 'member_kick' ? 'kick' : 'leave', username: who.username || 'Member', user: who };
     });
-    const activity = memberLogs.map(l => ({ t: l.t, type: l.ty === 'member_join' ? 'join' : l.ty === 'member_kick' ? 'kick' : 'leave', username: (l.ty === 'member_kick' ? l.un : l.an) || 'Member' }));
     const boosts = server.bc || 0, next = BOOST_PERKS.find(p => boosts < p.at);
     return res.status(200).json({
       id: sid, name: server.n, owner: server.o,
       members: memberIds.length, online: users.filter(u => statusOf(u) !== 'offline').length, voice: inVoice.length,
-      boosts, tier: boostTier(boosts), nextPerk: next ? { n: next.n, at: next.at } : null,
+      boosts, tier: boostTier(boosts), maxTier: BOOST_PERKS.length, nextPerk: next ? { n: next.n, at: next.at } : null,
       series: snaps.map(r => ({ d: r.d, m: r.m || 0, o: r.o || 0 })),
       weekVoice: week[0] ? week[0].t : 0,
       weekMsgs,
       msgSeries: msgDays.map(r => ({ d: r._id, n: r.n })),
-      topVoice: voiceTop.map(v => ({ username: nm[v.u] || 'Member', t: v.t || 0 })),
-      topChatters: chatterRows.map(c => ({ username: nm[c._id] || 'Member', n: c.n })),
+      topVoice: voiceTop.map(v => ({ username: card(v.u).username, t: v.t || 0, user: card(v.u) })),
+      topChatters: chatterRows.map(c => ({ username: card(c._id).username, n: c.n, user: card(c._id) })),
       topBoosters, memberList, activity, joinedWeek, leftWeek, day
     });
   }
@@ -123,14 +125,14 @@ async function overclockActions({ body, auth, res }) {
         Log.find({ a: auth.userId, ty: 'boost_grant' }).sort({ _id: -1 }).limit(20).lean()
       ]);
       if (!server) return res.status(404).json({ error: 'Server not found.' });
-      const boosters = await User.find({ _id: { $in: rows.map(r => r._id) } }).select('n').lean();
-      const nm = Object.fromEntries(boosters.map(u => [u._id, u.n]));
+      const boosters = await User.find({ _id: { $in: rows.map(r => r._id) } }).select('n av b ls ps st sx pl pe ac pg nf vt mc').lean();
+      const who = Object.fromEntries(boosters.map(u => [u._id, cardOf(u)]));
       const plus = plusOn(me);
       return res.status(200).json({
         server: server.n, owner: server.o, boosts: server.bc || 0, tier: boostTier(server.bc), perks: server.bp || [], accent: server.sc || '', font: server.sf || '',
-        banner: server.bn || '', logo: server.lg || '', emoji: server.em || [], stickers: server.sk || [],
+        banner: server.bn || '', logo: server.lg || '', emoji: server.em || [], stickers: server.sk || '',
         available: BOOST_PERKS, mine: me.ub || 0, plus, nextBoosts: plus ? (me.ng || 0) : 0,
-        history: rows.map(r => ({ t: r.t, by: nm[r._id] || 'someone', n: r.n })),
+        history: rows.map(r => ({ t: r.t, by: (who[r._id] || {}).username || 'someone', n: r.n, user: who[r._id] || null })),
         grants: grants.map(l => ({ t: l.t, x: l.x }))
       });
     }

@@ -37,7 +37,7 @@ function paintRail() {
 }
 
 function renderSide() {
-    paintOnce('side', JSON.stringify([S.view, S.server, S.channels, S.cats, S.friends, S.unread, S.voice, S.channelId, S.dm && S.dm.id, S.oc, S.statsOpen, S.stats && [S.stats.members, S.stats.online], S.me && S.me.id]), paintSide);
+    paintOnce('side', JSON.stringify([S.view, S.server, S.channels, S.cats, S.friends, S.unread, S.voice, S.channelId, S.dm && S.dm.id, S.page, S.stats && [S.stats.members, S.stats.online], S.me && S.me.id]), paintSide);
 }
 function paintSide() {
     const server = S.view === 'server' && S.server;
@@ -74,7 +74,7 @@ function paintSide() {
         const dun = S.unread.dms[u.id];
         const b = h('button', 'dm-item' + (S.view === 'dm' && S.dm && S.dm.id === u.id ? ' active' : '') + (dun ? ' has-unread' : ''));
         const da = userAva(u, 'sm'); da.append(dot(u.status));
-        b.append(da, h('span', dun ? 'unread' : '', u.username || u.email));
+        b.append(da, userLink(u, dun ? 'unread' : ''));
         if (dun) b.append(h('em', 'ping-badge', String(dun.pings)));
         b.onclick = () => openDM(u);
         b._ctx = [['Copy link', () => copy(location.origin + '/dm/' + encodeURIComponent(u.username || u.id))], ...userItems(u)];
@@ -98,8 +98,7 @@ function paintFriends() {
         const c = h('div', 'friend-card');
         if (u.plus && (u.glow || u.accent)) { c.classList.add('glow'); c.style.setProperty('--pg', u.glow || u.accent); }
         const meta = h('div', 'meta');
-        const nm = h('strong', u.plus ? 'plus-name' : '', u.username || u.email); nm.style.color = nameColour(u); nm.style.fontFamily = u.plus ? fontOf(u.nameFont) : '';
-        meta.append(nm);
+        meta.append(userLink(u, '', 'strong'));
         if (u.statusText) { const st = h('small', '', u.statusText); st.style.color = u.plus && u.accent ? ink(u.accent) : ''; meta.append(st); }
         meta.append(h('small', '', u.bio || u.email || ''), h('small', 'stats', `${fmtDur(u.voice || 0)} in voice · ${u.msgs || 0} messages`));
         const btn = h('button', 'btn ghost', 'Message');
@@ -123,14 +122,18 @@ function renderRequests() {
         a.type = d.type = 'button';
         a.onclick = () => answerFriend(u, 'friend-accept', `You and ${u.username} are now friends`);
         d.onclick = () => answerFriend(u, 'friend-deny', 'Request declined.');
-        r.append(avatar(u.username, 'sm', u.avatar), h('span', '', `${u.username} wants to be friends${u.t ? ` · ${stamp(u.t)}` : ''}`), a, d);
+        const txt = h('span');
+        txt.append(userLink(u), ` wants to be friends${u.t ? ` · ${stamp(u.t)}` : ''}`);
+        r.append(avatar(u.username, 'sm', u.avatar), txt, a, d);
         ib.append(r);
     });
     out.forEach(u => {
         const r = h('div', 'logrow reqrow'), c = h('button', 'btn ghost sm', 'Cancel');
         c.type = 'button';
         c.onclick = () => answerFriend(u, 'friend-deny', 'Request cancelled.');
-        r.append(avatar(u.username, 'sm', u.avatar), h('span', '', `Waiting for ${u.username}${u.t ? ` · sent ${stamp(u.t)}` : ''}`), c);
+        const txt = h('span');
+        txt.append('Waiting for ', userLink(u), u.t ? ` · sent ${stamp(u.t)}` : '');
+        r.append(avatar(u.username, 'sm', u.avatar), txt, c);
         ob.append(r);
     });
 }
@@ -148,11 +151,13 @@ function renderMain() {
     if (home) { renderFriends(); return; }
     if (disc) return;
     const isServer = S.view === 'server';
-    const oc = isServer && S.oc;
-    const sp = isServer && S.statsOpen;
+    const page = isServer ? S.page : '';
+    const oc = page === 'overclock', sp = page === 'overview', wv = page === 'welcome' || page === 'leave';
     const ch = isServer ? curChannel() : null;
     const icon = $('chat-icon');
     icon.textContent = '';
+    $('chat-name').onclick = null;
+    $('chat-name').style.cursor = '';
     if (oc) {
         icon.textContent = '✦';
         $('chat-name').textContent = 'Server overclock';
@@ -162,6 +167,12 @@ function renderMain() {
     } else if (sp) {
         icon.innerHTML = ICON.chart;
         $('chat-name').textContent = 'Server overview';
+        $('chat-name').style.color = S.server.accent ? ink(S.server.accent) : '';
+        $('chat-name').style.fontFamily = fontOf(S.server.font);
+        $('chat-sub').textContent = S.server.name;
+    } else if (wv) {
+        icon.innerHTML = page === 'welcome' ? ICON.user : ICON.forward;
+        $('chat-name').textContent = page === 'welcome' ? 'Welcome' : 'Leave';
         $('chat-name').style.color = S.server.accent ? ink(S.server.accent) : '';
         $('chat-name').style.fontFamily = fontOf(S.server.font);
         $('chat-sub').textContent = S.server.name;
@@ -179,6 +190,8 @@ function renderMain() {
         $('chat-name').textContent = n;
         $('chat-name').style.color = '';
         $('chat-name').style.fontFamily = '';
+        $('chat-name').onclick = () => openUserCard(S.dm);
+        $('chat-name').style.cursor = 'pointer';
         $('chat-sub').textContent = '';
     }
     const tb = document.querySelector('#view-chat .topbar');
@@ -186,16 +199,18 @@ function renderMain() {
         tb.classList.toggle('has-banner', isServer && !!S.server.banner);
         tb.style.backgroundImage = isServer && S.server.banner ? `linear-gradient(90deg, rgba(6,12,25,.55), rgba(6,12,25,.85)), url("${S.server.banner}")` : '';
     }
-    $('invite-btn').classList.toggle('hidden', !isServer || oc || sp);
-    $('members-btn').classList.toggle('hidden', oc || sp);
+    $('invite-btn').classList.toggle('hidden', !isServer || !!page);
+    $('members-btn').classList.toggle('hidden', !!page);
     $('members-btn').title = isServer ? 'Members' : 'Profile';
     $('members-btn').classList.toggle('on', S.membersOn);
     $('chat-body').classList.toggle('members-on', isServer && S.membersOn);
     $('chat-body').classList.toggle('dm-on', !isServer && S.membersOn);
-    $('chat-body').classList.toggle('hidden', oc || sp);
+    $('chat-body').classList.toggle('hidden', !!page);
     $('oc-page').classList.toggle('hidden', !oc);
     $('sp-page').classList.toggle('hidden', !sp);
+    $('wv-page').classList.toggle('hidden', !wv);
     if (sp) renderOverview();
+    if (wv) renderActivityPage(page);
     if (!isServer) renderDmCard();
 
     const none = isServer && S.chLoaded && !ch;
@@ -300,7 +315,8 @@ function renderMessages(list, force) {
     } else {
         const n = S.dm.username || S.dm.email;
         big.innerHTML = ICON.chat;
-        start.append(big, h('h2', '', n), h('p', '', `This is the beginning of your conversation with ${n}.`));
+        const hd = h('h2'); hd.append(userLink(S.dm));
+        start.append(big, hd, h('p', '', `This is the beginning of your conversation with ${n}.`));
     }
     if (S.view === 'server' && S.server && S.server.banner) {
         const bn = h('div', 'chat-banner');
@@ -336,7 +352,7 @@ function renderMessages(list, force) {
         let txt, mentionsMe = false;
         if (m.reply) {
             const q = h('div', 'reply-quote');
-            q.append(h('strong', '', m.reply.username || 'Unknown'), h('span', '', m.reply.text || ''));
+            q.append(userLink({ id: m.reply.id, username: m.reply.username || 'Unknown' }, '', 'strong'), h('span', '', m.reply.text || ''));
             q.title = 'Jump to the replied message';
             q.onclick = () => {
                 const el = document.getElementById('msg-' + m.reply.id);
@@ -531,7 +547,7 @@ $('channel-create-form').onsubmit = async (e) => {
     if (!out.res.ok) { $('channel-modal-msg').textContent = out.data.error || 'Could not create channel.'; return; }
     closeModals();
     await loadChannels();
-    S.channelId = out.data.channel.id; S.last[S.server.id] = S.channelId; S.sig = ''; S.oc = false; S.statsOpen = false;
+    S.channelId = out.data.channel.id; S.last[S.server.id] = S.channelId; S.sig = ''; S.page = '';
     renderAll();
     syncUrl();
     loadMessages(true);

@@ -119,7 +119,7 @@ function moveCategory(name, dir) {
 
 /* ---------- paint ---------- */
 function channelItem(c, group, index, owner) {
-    const active = c.id === S.channelId && !S.oc && !S.statsOpen;
+    const active = c.id === S.channelId && !S.page;
     const it = h('div', 'ch-item' + (active ? ' active' : ''));
     it.tabIndex = 0; it.setAttribute('role', 'button');
     it.innerHTML = c.kind === 'v' ? ICON.speaker : ICON.hash;
@@ -227,7 +227,7 @@ function paintChannelList() {
     const sec = h('div', 'sec-title'); sec.append(h('span', '', 'Server'));
     list.append(sec);
 
-    const sp = h('div', 'ch-item sp-item' + (S.statsOpen ? ' active' : ''));
+    const sp = h('div', 'ch-item sp-item' + (S.page === 'overview' ? ' active' : ''));
     sp.tabIndex = 0; sp.setAttribute('role', 'button');
     sp.innerHTML = ICON.chart;
     sp.append(h('span', '', 'Server overview'));
@@ -237,7 +237,24 @@ function paintChannelList() {
     sp.onkeydown = (e) => { if (e.key === 'Enter') openOverview(); };
     list.append(sp);
 
-    const oc = h('div', 'ch-item oc-item' + (S.oc ? ' active' : ''));
+    // Welcome and leave unlock with the last overclock perk; members see the locked rows to advertise it.
+    const pages = (S.server.boosts || 0) >= SERVER_PAGES_AT;
+    [['welcome', 'Welcome', ICON.user], ['leave', 'Leave', ICON.forward]].forEach(([key, label, ic]) => {
+        const row = h('div', 'ch-item wl-item' + (S.page === key ? ' active' : '') + (pages ? '' : ' locked'));
+        row.tabIndex = 0; row.setAttribute('role', 'button');
+        row.innerHTML = ic;
+        row.append(h('span', '', label));
+        if (!pages) row.append(h('em', 'lock-count', `${SERVER_PAGES_AT}✦`));
+        row.title = pages
+            ? (key === 'welcome' ? 'New members and how to invite them' : 'Who left recently and when')
+            : `${label} page unlocks at ${SERVER_PAGES_AT} overclocks — this server has ${S.server.boosts || 0}`;
+        const open = () => (key === 'welcome' ? openWelcome() : openLeave());
+        row.onclick = open;
+        row.onkeydown = (e) => { if (e.key === 'Enter') open(); };
+        list.append(row);
+    });
+
+    const oc = h('div', 'ch-item oc-item' + (S.page === 'overclock' ? ' active' : ''));
     oc.tabIndex = 0; oc.setAttribute('role', 'button');
     oc.append(h('span', 'oc-star', '✦'), h('span', '', 'Server overclock'), h('em', 'oc-count', String(S.server.boosts || 0)));
     oc.title = `${S.server.boosts || 0} overclocks · ${S.server.tier || 0} perk tiers — perks, art, free emoji and stickers`;
