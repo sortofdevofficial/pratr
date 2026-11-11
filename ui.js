@@ -34,6 +34,7 @@ function paintRail() {
         b.onclick = () => openServer(s.id);
         box.append(b);
     });
+    syncTabs();
 }
 
 function renderSide() {
@@ -101,7 +102,8 @@ function paintFriends() {
         meta.append(userLink(u, '', 'strong'));
         if (u.statusText) { const st = h('small', '', u.statusText); st.style.color = u.plus && u.accent ? ink(u.accent) : ''; meta.append(st); }
         meta.append(h('small', '', u.bio || u.email || ''), h('small', 'stats', `${fmtDur(u.voice || 0)} in voice · ${u.msgs || 0} messages`));
-        const btn = h('button', 'btn ghost', 'Message');
+        const btn = h('button', 'btn ghost');
+        btn.innerHTML = ICON.chat + '<span>Message</span>';
         btn.onclick = (e) => { e.stopPropagation(); openDM(u); };
         c._ctx = [['Copy link', () => copy(location.origin + '/dm/' + encodeURIComponent(u.username || u.id))], ...userItems(u)];
         const av = userAva(u); av.append(dot(u.status));
@@ -118,7 +120,9 @@ function renderRequests() {
     const ib = $('req-in'), ob = $('req-out');
     ib.textContent = ''; ob.textContent = '';
     inc.forEach(u => {
-        const r = h('div', 'logrow reqrow'), a = h('button', 'btn primary sm', 'Accept'), d = h('button', 'btn ghost sm', 'Deny');
+        const r = h('div', 'logrow reqrow'), a = h('button', 'btn primary sm'), d = h('button', 'btn ghost sm');
+        a.innerHTML = ICON.check + '<span>Accept</span>';
+        d.innerHTML = ICON.x + '<span>Deny</span>';
         a.type = d.type = 'button';
         a.onclick = () => answerFriend(u, 'friend-accept', `You and ${u.username} are now friends`);
         d.onclick = () => answerFriend(u, 'friend-deny', 'Request declined.');

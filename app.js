@@ -2,6 +2,7 @@
 const $ = (id) => document.getElementById(id);
 const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 const svg = (d) => `<svg class="ic" viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+const svgm = (...ds) => `<svg class="ic" viewBox="0 0 24 24">${ds.map(d => `<path d="${d}"/>`).join('')}</svg>`;
 const ICON = {
     hash: svg('M5 9h14M5 15h14M10 3 8 21M16 3l-2 18'),
     trash: svg('M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6'),
@@ -21,14 +22,44 @@ const ICON = {
     user: svg('M20 21a8 8 0 0 0-16 0M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z'),
     up: svg('M12 20V4M6 10l6-6 6 6'),
     eye: svg('M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'),
-    edit: svg('M11 4H4v16h16v-7M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z')
+    edit: svg('M11 4H4v16h16v-7M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z'),
+    home: svg('M3 10.5 12 3l9 7.5V21H3zM9 21v-6h6v6'),
+    compass: svgm('M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20', 'm16.2 7.8-2.1 6.3-6.3 2.1 2.1-6.3z'),
+    link: svg('M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7'),
+    settings: svgm('M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6', 'M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.14.37.47.65.87.73H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z'),
+    bell: svgm('M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9', 'M13.7 21a2 2 0 0 1-3.4 0'),
+    search: svgm('M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16', 'm21 21-4.3-4.3'),
+    check: svg('M20 6 9 17l-5-5'),
+    arrowLeft: svg('M19 12H5M11 18l-6-6 6-6'),
+    chevronDown: svg('m6 9 6 6 6-6'),
+    mail: svgm('M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z', 'm22 7-10 6L2 7'),
+    key: svgm('M21 2l-2 2m-7.6 7.6a6 6 0 1 1-8.5 8.5 6 6 0 0 1 8.5-8.5z', 'm15.5 5.5 3 3'),
+    shield: svg('M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'),
+    star: svg('M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z'),
+    sparkles: svgm('M12 2l1.9 4.6 4.6 1.9-4.6 1.9L12 15l-1.9-4.6L5.5 8.5l4.6-1.9z', 'M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z'),
+    image: svgm('M3 4h18v16H3z', 'M3 16l5-5 4 4 3-3 6 6', 'M8.5 9.5h.01'),
+    palette: svgm('M12 22a10 10 0 1 1 10-10c0 2.2-1.8 4-4 4h-2a2 2 0 0 0-1.5 3.3A2 2 0 0 1 12 22z', 'M7.5 10.5h.01M10 7h.01M14 7h.01M16.5 10.5h.01'),
+    clock: svgm('M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20', 'M12 6v6l4 2'),
+    calendar: svgm('M3 4h18v18H3z', 'M16 2v4M8 2v4M3 10h18'),
+    users: svgm('M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2', 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8', 'M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8'),
+    logout: svg('M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9'),
+    gift: svgm('M20 12v10H4V12', 'M2 7h20v5H2z', 'M12 22V7', 'M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z', 'M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z'),
+    folder: svg('M3 6h6l2 2h10v12H3z'),
+    info: svgm('M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20', 'M12 16v-5M12 8h.01'),
+    camera: svgm('M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z', 'M12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8'),
+    globe: svgm('M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20', 'M2 12h20', 'M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20'),
+    server: svgm('M4 2h16a2 2 0 0 1 2 2v5H2V4a2 2 0 0 1 2-2z', 'M4 11h16a2 2 0 0 1 2 2v5H2v-5a2 2 0 0 1 2-2z', 'M6 6h.01M6 15h.01'),
+    send: svg('M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z'),
+    pin: svg('M12 17v5M9 3h6l-1 7 4 4H6l4-4z'),
+    copy: svgm('M9 9h11v11H9z', 'M5 15H4V4h11v1'),
+    refresh: svg('M3 12a9 9 0 0 1 15.5-6.4L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.4L3 16M3 21v-5h5')
 };
 
 const S = {
     token: localStorage.getItem('token') || '',
     me: null, servers: [], friends: [], requests: { in: [], out: [] }, view: 'home',
     server: null, channels: [], channelId: null, dm: null, members: [],
-    last: {}, chLoaded: false, sig: '', sending: false, membersOn: (() => { try { const v = localStorage.getItem('members'); if (v) return v === '1'; } catch {} return window.innerWidth > 760; })(),
+    last: {}, chLoaded: false, sig: '', sending: false, membersOn: (() => { if (window.innerWidth <= 860) return false; try { const v = localStorage.getItem('members'); if (v) return v === '1'; } catch {} return true; })(),
     login: true, t1: null, t2: null, t3: null, t4: null, t5: null, maxId: {}, fullAt: {}, voice: {}, reply: null, page: '', cats: [], stats: null
 };
 // Built-in server pages live in the sidebar. Welcome and leave unlock at this overclock count (see BOOST_PERKS).
@@ -337,8 +368,18 @@ async function loadMessages(force = false) {
 }
 
 /* ---------- navigation ---------- */
-function closeNav() { document.body.classList.remove('nav-open'); }
-document.querySelectorAll('[data-menu]').forEach(b => b.onclick = () => document.body.classList.toggle('nav-open'));
+function closeNav() { document.body.classList.remove('nav-open'); syncTabs(); }
+function syncTabs() {
+    const bar = $('tabbar');
+    if (!bar) return;
+    bar.querySelectorAll('button[data-tab]').forEach(b => {
+        const t = b.dataset.tab;
+        b.classList.toggle('on', t === 'friends' ? S.view === 'home'
+            : t === 'discover' ? S.view === 'discover'
+            : t === 'menu' ? document.body.classList.contains('nav-open') || S.view === 'server' : false);
+    });
+}
+document.querySelectorAll('[data-menu]').forEach(b => b.onclick = () => { document.body.classList.toggle('nav-open'); syncTabs(); });
 $('scrim').onclick = closeNav;
 $('rail-home').onclick = () => { goHome(); closeNav(); };
 $('nav-friends').onclick = () => { goHome(); closeNav(); };
@@ -346,6 +387,14 @@ $('rail-discover').onclick = () => {
     S.view = 'discover'; S.server = null; S.dm = null; S.channels = []; S.cats = []; S.channelId = null; S.members = []; S.sig = ''; S.page = '';
     renderAll(); loadDiscover(); syncUrl(); closeNav();
 };
+if ($('tabbar')) $('tabbar').querySelectorAll('button[data-tab]').forEach(b => b.onclick = () => {
+    const t = b.dataset.tab;
+    if (t === 'friends') goHome();
+    else if (t === 'discover') $('rail-discover').click();
+    else if (t === 'menu') document.body.classList.toggle('nav-open');
+    else if (t === 'you') $('edit-btn').click();
+    syncTabs();
+});
 
 /* ---------- discover ---------- */
 let discT;
@@ -356,7 +405,8 @@ async function loadDiscover() {
     grid.textContent = '';
     if (!list.length) grid.append(h('div', 'empty-note', 'No public servers found. Owners can list theirs in Server settings.'));
     list.forEach(s => {
-        const c = h('div', 'disc-card'), b = h('div', 'disc-body'), btn = h('button', 'btn ' + (s.joined ? 'ghost' : 'primary'), s.joined ? 'Open' : 'Join');
+        const c = h('div', 'disc-card'), b = h('div', 'disc-body'), btn = h('button', 'btn ' + (s.joined ? 'ghost' : 'primary'));
+        btn.innerHTML = (s.joined ? ICON.forward : ICON.plus) + `<span>${s.joined ? 'Open' : 'Join'}</span>`;
         if (s.banner) { c.classList.add('has-banner'); c.style.setProperty('--banner', `url("${s.banner}")`); }
         btn.onclick = async () => {
             if (!s.joined) {

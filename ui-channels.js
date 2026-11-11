@@ -177,7 +177,8 @@ function paintChannelList() {
     groups.forEach(g => {
         const wrap = h('div', 'ch-group');
         const head = h('div', 'sec-title ch-head');
-        head.append(h('span', '', g.name));
+        const catIc = h('i', 'cat-ic'); catIc.innerHTML = ICON.folder;
+        head.append(catIc, h('span', '', g.name));
         if (owner) {
             const rename = h('button', 'icon-btn'); rename.innerHTML = ICON.edit; rename.title = 'Rename category';
             rename.onclick = (e) => { e.stopPropagation(); renameCategory(g.name); };
@@ -224,7 +225,9 @@ function paintChannelList() {
         list.append(addCat);
     }
 
-    const sec = h('div', 'sec-title'); sec.append(h('span', '', 'Server'));
+    const sec = h('div', 'sec-title');
+    const secIc = h('i', 'cat-ic'); secIc.innerHTML = ICON.server;
+    sec.append(secIc, h('span', '', 'Server'));
     list.append(sec);
 
     const sp = h('div', 'ch-item sp-item' + (S.page === 'overview' ? ' active' : ''));
